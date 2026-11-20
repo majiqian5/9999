@@ -29,20 +29,10 @@
 }
 
 - (UIColor *)colorForBar:(NSInteger)index {
-    // 青 -> 粉 -> 黄，跟四个图标同一套霓虹色
+    // 彩虹：12 根柱子色相从红渐变到紫
     CGFloat t = (CGFloat)index / (CGFloat)(kANVSpectrumBars - 1);
-    if (t < 0.5) {
-        CGFloat k = t * 2.0;
-        return [UIColor colorWithRed:0.31 + 0.69 * k
-                               green:0.76 - 0.52 * k
-                                blue:1.00 - 0.50 * k
-                               alpha:1.0];
-    }
-    CGFloat k = (t - 0.5) * 2.0;
-    return [UIColor colorWithRed:1.0
-                           green:0.24 + 0.54 * k
-                            blue:0.50 - 0.24 * k
-                           alpha:1.0];
+    CGFloat hue = t * 0.83;              // 0 -> 红, 0.83 -> 紫
+    return [UIColor colorWithHue:hue saturation:1.0 brightness:1.0 alpha:1.0];
 }
 
 - (void)drawRect:(CGRect)rect {

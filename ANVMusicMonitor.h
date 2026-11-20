@@ -12,6 +12,7 @@
 + (instancetype)shared;
 
 - (void)start;
+- (void)stop;
 
 @property (nonatomic, readonly, getter=isPlaying) BOOL playing;
 @property (nonatomic, readonly) BOOL micAvailable;

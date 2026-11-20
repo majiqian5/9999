@@ -28,4 +28,8 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 - (void)reload;
 - (void)saveCenter:(CGPoint)normalizedPoint;
 - (ANVKeyAction)actionForSlot:(NSInteger)slot;   // slot 0~3
+
+- (void)saveScalePercent:(CGFloat)percent;          // 70 ~ 150
+- (void)saveSpectrumEnabled:(BOOL)enabled;
+- (void)saveAction:(ANVKeyAction)action forSlot:(NSInteger)slot;
 @end

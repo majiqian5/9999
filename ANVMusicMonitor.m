@@ -235,6 +235,13 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
 
 #pragma mark - 对外
 
+- (void)stop {
+    [self.pollTimer invalidate];
+    self.pollTimer = nil;
+    [self stopMicrophone];
+    self.playing = NO;
+}
+
 - (void)fillLevels:(float *)levels count:(NSUInteger)count {
     if (!levels) return;
     NSUInteger n = MIN(count, (NSUInteger)kANVBandCount);

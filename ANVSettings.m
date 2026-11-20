@@ -109,6 +109,26 @@ static void ANVSetPref(NSString *key, id value) {
     self.slotActions = actions;
 }
 
+- (void)saveScalePercent:(CGFloat)percent {
+    CGFloat clamped = MAX(70.0, MIN(150.0, percent));
+    ANVSetPref(@"Scale", @(clamped));
+    self.scale = clamped / 100.0;
+}
+
+- (void)saveSpectrumEnabled:(BOOL)enabled {
+    ANVSetPref(@"SpectrumEnabled", @(enabled));
+    self.spectrumEnabled = enabled;
+}
+
+- (void)saveAction:(ANVKeyAction)action forSlot:(NSInteger)slot {
+    if (slot < 0 || slot > 3) return;
+    NSMutableArray *actions = [[self slotActions] mutableCopy] ?: [NSMutableArray array];
+    while (actions.count < 4) [actions addObject:@(slot == 1 ? 1 : slot)];
+    actions[slot] = @((NSInteger)action);
+    ANVSetPref([NSString stringWithFormat:@"Action%ld", (long)slot], @((NSInteger)action));
+    self.slotActions = actions;
+}
+
 - (ANVKeyAction)actionForSlot:(NSInteger)slot {
     if (slot < 0 || slot >= (NSInteger)self.slotActions.count) return ANVKeyActionNone;
     return (ANVKeyAction)[self.slotActions[slot] integerValue];

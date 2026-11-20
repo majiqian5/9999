@@ -203,6 +203,20 @@ static void ANVLog(NSString *format, ...) {
             ANVLog(@"switcher via toggleMainSwitcherNoninteractivelyWithSource:animated: -> yes");
             return YES;
         }
+        SEL toggleMain2 = NSSelectorFromString(@"_toggleMainSwitcherNoninteractivelyWithSource:animated:");
+        if ([switcher respondsToSelector:toggleMain2]) {
+            NSMethodSignature *sig = [switcher methodSignatureForSelector:toggleMain2];
+            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+            inv.target = switcher;
+            inv.selector = toggleMain2;
+            NSUInteger source = 1;
+            BOOL animated = YES;
+            [inv setArgument:&source atIndex:2];
+            [inv setArgument:&animated atIndex:3];
+            [inv invoke];
+            ANVLog(@"switcher via _toggleMainSwitcherNoninteractivelyWithSource:animated: -> yes");
+            return YES;
+        }
         SEL activate = NSSelectorFromString(@"activateSwitcherNoninteractively");
         if ([switcher respondsToSelector:activate]) {
             [switcher performSelector:activate];
@@ -250,7 +264,7 @@ static void ANVLog(NSString *format, ...) {
         case ANVGlyphBack: {
             NSString *target = [[ANVHistory shared] moveBack];
             ANVLog(@"back target=%@", target);
-            result = target.length ? [self openBundleID:target] : [self toggleAppSwitcher];
+            result = target.length ? [self openBundleID:target] : NO;
             break;
         }
         case ANVGlyphHome:
