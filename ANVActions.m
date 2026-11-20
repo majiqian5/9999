@@ -31,6 +31,27 @@ static void ANVLog(NSString *format, ...) {
     } @catch (__unused NSException *e) {}
 }
 
+static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
+    if (!cls) { ANVLog(@"%@ class missing", tag); return; }
+    for (int pass = 0; pass < 2; pass++) {
+        Class target = (pass == 0) ? cls : object_getClass(cls);
+        unsigned int count = 0;
+        Method *list = class_copyMethodList(target, &count);
+        if (!list) continue;
+        NSMutableArray *names = [NSMutableArray array];
+        for (unsigned int i = 0; i < count; i++) {
+            NSString *name = NSStringFromSelector(method_getName(list[i]));
+            if ([name rangeOfString:keyword options:NSCaseInsensitiveSearch].location == NSNotFound) continue;
+            [names addObject:name];
+            if (names.count >= 40) break;
+        }
+        free(list);
+        if (names.count) {
+            ANVLog(@"%@ %@: %@", tag, (pass == 0) ? @"-" : @"+", [names componentsJoinedByString:@" | "]);
+        }
+    }
+}
+
 @implementation ANVActions
 
 #pragma mark - 环境探测
@@ -74,6 +95,12 @@ static void ANVLog(NSString *format, ...) {
     Class wsProbe = objc_getClass("LSApplicationWorkspace");
     id wsInstance = [wsProbe respondsToSelector:@selector(defaultWorkspace)] ? [wsProbe performSelector:@selector(defaultWorkspace)] : nil;
     ANVLog(@"frontmost via LSApplicationWorkspace=%d", [wsInstance respondsToSelector:NSSelectorFromString(@"frontmostApplication")]);
+    // 把真正存在的方法名列出来，不再靠猜
+    ANVDumpMethods(objc_getClass("SBMainSwitcherViewController"), @"witcher", @"SEL switcher");
+    ANVDumpMethods(objc_getClass("SBApplicationController"), @"ront", @"SEL appCtl");
+    ANVDumpMethods(objc_getClass("SBRecentAppLayouts"), @"ecent", @"SEL recents");
+    ANVDumpMethods(objc_getClass("LSApplicationWorkspace"), @"ront", @"SEL workspace");
+    ANVDumpMethods(objc_getClass("SBUIController"), @"ome", @"SEL uic");
     ANVLog(@"--- probe end ---");
 }
 
