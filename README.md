@@ -9,6 +9,14 @@
 
 包名 `com.doubao.andronavbar`，rootless（`/var/jb`），arm64 + arm64e，iOS 15–16。
 
+### 1.1.0 新增
+
+- **背景全透明**：去掉毛玻璃和底色，只留四个霓虹图标（设置里可切回毛玻璃）。
+- **图标可更换**：把 PNG 放进 `/var/jb/Library/Application Support/AndroNavBar/icons/`，命名 `slot0.png` ~ `slot3.png`，respring 生效；不放就用内置矢量图标。
+- **大小自定义**：设置里“图标大小”70% ~ 150%。
+- **功能键可选**：四个位子各自可设为 返回 / 主屏幕 / 后台 / 前进 / 无动作。
+- **真频谱**：播放音乐时用麦克风采集 + Accelerate FFT，12 段对数频段，快起慢落；暂停/停止立刻关麦克风，频谱归零。
+
 ## 用 GitHub Actions 编译（推荐）
 
 仓库里已经放好 `.github/workflows/build.yml`，跑在 `macos-15`，用官方 Theos + 官方 SDK 编译，arm64e 的 ABI 是正确的（Linux 版 Theos 那套 `incompatible arm64e ABI` 问题不会出现）。
@@ -75,9 +83,21 @@ Sileo / Zebra 直接打开 deb 安装也可以。卸载：`dpkg -r com.doubao.an
 
 ## 使用
 
-- 单指拖动整条：移动位置，松手自动记忆（写入 `com.doubao.andronavbar` 的 `CenterX/CenterY`）。
+- **单指拖动整条**：移动位置，松手记忆（写入 `com.doubao.andronavbar` 的 `CenterX/CenterY`）。
 - 长按整条 0.65 秒：淡出 5 秒，方便看视频/打游戏，之后自动回来。
+- 长按整条 2.6 秒：位置重置回底部居中。
 - 点键有轻微放大 + 发光加强 + 震动（可在设置里关）。
+- 首次运行到 1.0.1 会自动把旧版本误拖的位置归位一次（`PositionMigratedV2` 标记）。
+
+### 频谱权限（重要）
+
+`AVAudioSession` 采集麦克风时，SpringBoard 的 Info.plist 没有麦克风用途描述，未授权直接调用会被系统杀掉。代码里先检查 `recordPermission`，**没授权就不启动录音**，所以不会因为频谱崩 SpringBoard，但频谱也不会动。开启步骤：
+
+1. 用 AppData（或 TCC 工具）给 `SpringBoard` 打开麦克风权限；
+2. 设置里打开“启用频谱”；
+3. 注销重进，播放音乐，频谱才会跟节奏跳。
+
+注意：采的是环境声（不是 App 的数字输出），所以手机静音/音量极低时频谱会很小，这是正常的。
 
 设置项（设置 App → AndroNavBar）：启用、震动、不透明度、大小。改完注销生效。
 
@@ -86,9 +106,11 @@ Sileo / Zebra 直接打开 deb 安装也可以。卸载：`dpkg -r com.doubao.an
 | 键 | 主路径 | 兜底 |
 |---|---|---|
 | 返回 | 历史栈上一条 → `LSApplicationWorkspace openApplicationWithBundleID:` | 栈空时打开多任务 |
-| 主屏 | `SBMainSwitcherViewController _dismissSwitcherNoninteractivelyToAppLayout:[SBAppLayout homeScreenAppLayout]` | `SBUIController handleHomeButtonSinglePress` |
-| 后台 | `toggleSwitcherNoninteractivelyWithSource:` | `toggleSwitcherNoninteractively` / `activateSwitcherNoninteractively` |
+| 主屏 | `UIApplication _simulateHomeButtonPressWithCompletion:`（iOS 15+）→ `_simulateHomeButtonPress`（老系统） | 多任务控制器 dismiss 到 `homeScreenAppLayout` → `SBUIController` 老方法 |
+| 后台 | `toggleSwitcherNoninteractivelyWithSource:` | `toggleMainSwitcherNoninteractivelyWithSource:animated:`（iOS 15/16）→ `toggleSwitcherNoninteractively` → `activateSwitcherNoninteractively` |
 | 前进 | 前进栈 → 打开对应 App | 无动作 + 警告震动 |
+
+> iOS 15 移除了 `_simulateHomeButtonPress` 的简单版本，直接调用会崩 SpringBoard；所以优先用带 completion 的新方法，并对每个 selector 先 `respondsToSelector` 再调用。
 
 历史记录：运行时检测 `SBApplication` 是否存在 `setDisplayed:` / `setFrontmost:`，存在才用 `MSHookMessageEx` 挂钩；不存在就直接读 `SBRecentAppLayouts._recentsFromPrefs`，不会因为方法不存在而崩。
 
@@ -98,6 +120,16 @@ Sileo / Zebra 直接打开 deb 安装也可以。卸载：`dpkg -r com.doubao.an
 - 线条粗细：创建 `ANVGlyphView` 时的 `lineWidth`。
 - 图标形状：`ANVGlyphView.m` 的 `-pathForKind:inRect:`，归一化坐标，改点即可。
 - 想用图片素材：把 `icons/icon_*.png` 放进 `layout/.../AndroNavBar/`，再把按钮改成 `setImage:`。
+
+## 排错：看日志
+
+启动时会把探测到的私有 API 写法、每次按键走的分支写到 `/var/mobile/andronavbar.log`：
+
+```bash
+cat /var/mobile/andronavbar.log
+```
+
+正常应该能看到 `probe begin` 段落里 `homePressCompletion=1` 或 `toggleMain=1`，以及每次点击的 `performGlyph N -> 1`。哪个键是 `-> 0` 或 `FAILED`，就说明那条私有 API 在你这版系统上不存在。
 
 ## 已知风险（务必看）
 

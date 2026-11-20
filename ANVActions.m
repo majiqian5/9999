@@ -5,7 +5,62 @@
 
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
 
+static NSString *const kANVLogPath = @"/var/mobile/andronavbar.log";
+
+static void ANVLog(NSString *format, ...) {
+    va_list args;
+    va_start(args, format);
+    NSString *line = [[NSString alloc] initWithFormat:format arguments:args];
+    va_end(args);
+
+    NSString *stamped = [NSString stringWithFormat:@"[%@] %@\n",
+                         [NSDateFormatter localizedStringFromDate:[NSDate date]
+                                                        dateStyle:NSDateFormatterMediumStyle
+                                                        timeStyle:NSDateFormatterMediumStyle],
+                         line];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:kANVLogPath]) {
+        [stamped writeToFile:kANVLogPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        return;
+    }
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:kANVLogPath];
+    @try {
+        [handle seekToEndOfFile];
+        [handle writeData:[stamped dataUsingEncoding:NSUTF8StringEncoding]];
+        [handle closeFile];
+    } @catch (__unused NSException *e) {}
+}
+
 @implementation ANVActions
+
+#pragma mark - 环境探测
+
++ (void)logEnvironment {
+    ANVLog(@"--- AndroNavBar probe begin ---");
+    ANVLog(@"UIApplication: homePress=%d homePressCompletion=%d",
+           [[UIApplication sharedApplication] respondsToSelector:NSSelectorFromString(@"_simulateHomeButtonPress")],
+           [[UIApplication sharedApplication] respondsToSelector:NSSelectorFromString(@"_simulateHomeButtonPressWithCompletion:")]);
+
+    Class switcherClass = objc_getClass("SBMainSwitcherViewController");
+    id switcher = [switcherClass respondsToSelector:@selector(sharedInstance)] ? [(id)switcherClass performSelector:@selector(sharedInstance)] : nil;
+    ANVLog(@"switcher class=%@ toggle=%d toggleWithSource=%d toggleMain=%d activate=%d",
+           switcherClass,
+           [switcher respondsToSelector:NSSelectorFromString(@"toggleSwitcherNoninteractively")],
+           [switcher respondsToSelector:NSSelectorFromString(@"toggleSwitcherNoninteractivelyWithSource:")],
+           [switcher respondsToSelector:NSSelectorFromString(@"toggleMainSwitcherNoninteractivelyWithSource:animated:")],
+           [switcher respondsToSelector:NSSelectorFromString(@"activateSwitcherNoninteractively")]);
+
+    Class appClass = objc_getClass("SBApplication");
+    ANVLog(@"SBApplication setDisplayed=%d setFrontmost=%d",
+           [appClass instancesRespondToSelector:NSSelectorFromString(@"setDisplayed:")],
+           [appClass instancesRespondToSelector:NSSelectorFromString(@"setFrontmost:")]);
+
+    Class wsClass = objc_getClass("LSApplicationWorkspace");
+    id ws = [wsClass respondsToSelector:@selector(defaultWorkspace)] ? [(id)wsClass performSelector:@selector(defaultWorkspace)] : nil;
+    ANVLog(@"LSApplicationWorkspace=%@ open=%d", wsClass,
+           [ws respondsToSelector:NSSelectorFromString(@"openApplicationWithBundleID:")]);
+    ANVLog(@"--- probe end ---");
+}
 
 #pragma mark - App 切换
 
@@ -20,8 +75,10 @@
         BOOL (*openFn)(id, SEL, NSString *) = (BOOL (*)(id, SEL, NSString *))objc_msgSend;
         BOOL ok = openFn(workspace, sel, bundleID);
         if (ok) [[ANVHistory shared] noteProgrammaticOpen:bundleID];
+        ANVLog(@"open %@ -> %d", bundleID, ok);
         return ok;
-    } @catch (__unused NSException *e) {
+    } @catch (NSException *e) {
+        ANVLog(@"open exception: %@", e);
         return NO;
     }
 }
@@ -29,7 +86,27 @@
 #pragma mark - 主屏幕
 
 + (BOOL)goHome {
-    // 方案 A：让多任务控制器直接回到主屏布局（iOS 14–16 常用做法）
+    UIApplication *app = [UIApplication sharedApplication];
+
+    // iOS 15+ 用带 completion 的版本；更老的系统用无参版本
+    for (NSString *name in @[@"_simulateHomeButtonPressWithCompletion:", @"_simulateHomeButtonPress"]) {
+        SEL sel = NSSelectorFromString(name);
+        if ([app respondsToSelector:sel]) {
+            @try {
+                if ([name hasSuffix:@":"]) {
+                    [app performSelector:sel withObject:nil];
+                } else {
+                    [app performSelector:sel];
+                }
+                ANVLog(@"goHome via UIApplication %@ -> yes", name);
+                return YES;
+            } @catch (NSException *e) {
+                ANVLog(@"goHome %@ exception: %@", name, e);
+            }
+        }
+    }
+
+    // 备用：让多任务控制器回到主屏布局
     @try {
         Class switcherClass = objc_getClass("SBMainSwitcherViewController");
         Class layoutClass = objc_getClass("SBAppLayout");
@@ -48,27 +125,33 @@
                 [inv setArgument:&yes1 atIndex:3];
                 [inv setArgument:&yes2 atIndex:4];
                 [inv invoke];
+                ANVLog(@"goHome via switcher dismiss -> yes");
                 return YES;
             }
         }
-    } @catch (__unused NSException *e) {}
+    } @catch (NSException *e) {
+        ANVLog(@"goHome switcher exception: %@", e);
+    }
 
-    // 方案 B：模拟 Home 键单击
+    // 老系统兜底
     @try {
         Class uicClass = objc_getClass("SBUIController");
         if (uicClass) {
             id uic = [uicClass performSelector:@selector(sharedInstance)];
-            for (NSString *name in @[@"handleHomeButtonSinglePress",
-                                     @"_handleHomeButtonSinglePress",
-                                     @"clickedHomeButton"]) {
+            for (NSString *name in @[@"handleHomeButtonSinglePress", @"_handleHomeButtonSinglePress", @"clickedHomeButton"]) {
                 SEL sel = NSSelectorFromString(name);
                 if ([uic respondsToSelector:sel]) {
                     [uic performSelector:sel];
+                    ANVLog(@"goHome via SBUIController %@ -> yes", name);
                     return YES;
                 }
             }
         }
-    } @catch (__unused NSException *e) {}
+    } @catch (NSException *e) {
+        ANVLog(@"goHome SBUIController exception: %@", e);
+    }
+
+    ANVLog(@"goHome FAILED");
     return NO;
 }
 
@@ -81,30 +164,57 @@
         id switcher = [switcherClass performSelector:@selector(sharedInstance)];
         if (!switcher) return NO;
 
-        // iOS 11+：带 source 参数的版本
-        SEL withSource = NSSelectorFromString(@"toggleSwitcherNoninteractivelyWithSource:");
-        if ([switcher respondsToSelector:withSource]) {
-            [switcher performSelector:withSource withObject:nil];
-            return YES;
-        }
         // iOS 10 及更早
         SEL plainToggle = NSSelectorFromString(@"toggleSwitcherNoninteractively");
         if ([switcher respondsToSelector:plainToggle]) {
             [switcher performSelector:plainToggle];
+            ANVLog(@"switcher via toggleSwitcherNoninteractively -> yes");
             return YES;
         }
-        // 兜底：直接激活动画
+        // iOS 11+
+        SEL withSource = NSSelectorFromString(@"toggleSwitcherNoninteractivelyWithSource:");
+        if ([switcher respondsToSelector:withSource]) {
+            NSMethodSignature *sig = [switcher methodSignatureForSelector:withSource];
+            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+            inv.target = switcher;
+            inv.selector = withSource;
+            NSUInteger source = 1;
+            [inv setArgument:&source atIndex:2];
+            [inv invoke];
+            ANVLog(@"switcher via toggleSwitcherNoninteractivelyWithSource: -> yes");
+            return YES;
+        }
+        // iOS 15/16 新名字
+        SEL toggleMain = NSSelectorFromString(@"toggleMainSwitcherNoninteractivelyWithSource:animated:");
+        if ([switcher respondsToSelector:toggleMain]) {
+            NSMethodSignature *sig = [switcher methodSignatureForSelector:toggleMain];
+            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+            inv.target = switcher;
+            inv.selector = toggleMain;
+            NSUInteger source = 1;
+            BOOL animated = YES;
+            [inv setArgument:&source atIndex:2];
+            [inv setArgument:&animated atIndex:3];
+            [inv invoke];
+            ANVLog(@"switcher via toggleMainSwitcherNoninteractivelyWithSource:animated: -> yes");
+            return YES;
+        }
         SEL activate = NSSelectorFromString(@"activateSwitcherNoninteractively");
         if ([switcher respondsToSelector:activate]) {
             [switcher performSelector:activate];
+            ANVLog(@"switcher via activateSwitcherNoninteractively -> yes");
             return YES;
         }
         SEL legacyToggle = NSSelectorFromString(@"toggleSwitcher");
         if ([switcher respondsToSelector:legacyToggle]) {
             [switcher performSelector:legacyToggle];
+            ANVLog(@"switcher via toggleSwitcher -> yes");
             return YES;
         }
-    } @catch (__unused NSException *e) {}
+    } @catch (NSException *e) {
+        ANVLog(@"switcher exception: %@", e);
+    }
+    ANVLog(@"switcher FAILED (no selector matched)");
     return NO;
 }
 
@@ -115,8 +225,7 @@
         Class appControllerClass = objc_getClass("SBApplicationController");
         if (appControllerClass) {
             id controller = [appControllerClass performSelector:@selector(sharedInstance)];
-            for (NSString *name in @[@"frontmostApplication",
-                                     @"frontmostApplicationWithDisplayIdentifier"]) {
+            for (NSString *name in @[@"frontmostApplication", @"frontmostApplicationWithDisplayIdentifier"]) {
                 SEL sel = NSSelectorFromString(name);
                 if ([controller respondsToSelector:sel]) {
                     id app = [controller performSelector:sel];
@@ -132,24 +241,29 @@
 #pragma mark - 总入口
 
 + (BOOL)performGlyph:(ANVGlyphKind)kind {
+    BOOL result = NO;
     switch (kind) {
         case ANVGlyphBack: {
             NSString *target = [[ANVHistory shared] moveBack];
-            if (target.length) return [self openBundleID:target];
-            // 没有历史时，退回“打开多任务”
-            return [self toggleAppSwitcher];
+            ANVLog(@"back target=%@", target);
+            result = target.length ? [self openBundleID:target] : [self toggleAppSwitcher];
+            break;
         }
         case ANVGlyphHome:
-            return [self goHome];
+            result = [self goHome];
+            break;
         case ANVGlyphRecents:
-            return [self toggleAppSwitcher];
+            result = [self toggleAppSwitcher];
+            break;
         case ANVGlyphForward: {
             NSString *target = [[ANVHistory shared] moveForward];
-            if (target.length) return [self openBundleID:target];
-            return NO;
+            ANVLog(@"forward target=%@", target);
+            result = target.length ? [self openBundleID:target] : NO;
+            break;
         }
     }
-    return NO;
+    ANVLog(@"performGlyph %ld -> %d", (long)kind, result);
+    return result;
 }
 
 @end

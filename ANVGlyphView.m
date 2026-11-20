@@ -2,6 +2,7 @@
 
 @interface ANVGlyphView ()
 @property (nonatomic, strong) CAShapeLayer *shapeLayer;
+@property (nonatomic, strong) UIImageView *imageView;
 @property (nonatomic, assign) CGFloat baseLineWidth;
 @end
 
@@ -15,6 +16,12 @@
         self.userInteractionEnabled = NO;
         _baseLineWidth = 3.2;
         _lineWidth = 3.2;
+
+        _imageView = [[UIImageView alloc] initWithFrame:CGRectZero];
+        _imageView.contentMode = UIViewContentModeScaleAspectFit;
+        _imageView.userInteractionEnabled = NO;
+        _imageView.hidden = YES;
+        [self addSubview:_imageView];
 
         _shapeLayer = [CAShapeLayer layer];
         _shapeLayer.fillColor = [UIColor clearColor].CGColor;
@@ -101,10 +108,26 @@
     return p;
 }
 
+- (void)setGlyphImage:(UIImage *)image {
+    self.imageView.image = image;
+    self.imageView.hidden = (image == nil);
+    self.shapeLayer.hidden = (image != nil);
+    if (image) {
+        self.imageView.layer.shadowColor = self.glyphColor.CGColor;
+        self.imageView.layer.shadowOffset = CGSizeZero;
+        self.imageView.layer.shadowRadius = 7.0;
+        self.imageView.layer.shadowOpacity = 0.9;
+    }
+    [self setNeedsLayout];
+}
+
 - (void)layoutSubviews {
     [super layoutSubviews];
     _shapeLayer.frame = self.bounds;
     _shapeLayer.path = [self pathForKind:_kind inRect:self.bounds].CGPath;
+
+    CGFloat inset = 3.0;
+    _imageView.frame = CGRectInset(self.bounds, inset, inset);
 }
 
 @end

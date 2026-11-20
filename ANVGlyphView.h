@@ -12,4 +12,7 @@ typedef NS_ENUM(NSInteger, ANVGlyphKind) {
 @property (nonatomic, strong) UIColor *glyphColor;
 @property (nonatomic, assign) CGFloat lineWidth;
 - (void)setGlowHighlighted:(BOOL)highlighted;
+
+/// 用自定义 PNG 替换矢量图标（传 nil 恢复矢量绘制）
+- (void)setGlyphImage:(UIImage *)image;
 @end

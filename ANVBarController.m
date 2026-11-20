@@ -3,6 +3,8 @@
 #import "ANVActions.h"
 #import "ANVHistory.h"
 #import "ANVSettings.h"
+#import "ANVSpectrumView.h"
+#import "ANVMusicMonitor.h"
 
 static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     switch (kind) {
@@ -20,6 +22,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, strong) UIVisualEffectView *blurView;
 @property (nonatomic, strong) NSMutableArray<ANVGlyphView *> *glyphViews;
 @property (nonatomic, strong) NSMutableArray<UIButton *> *buttons;
+@property (nonatomic, strong) ANVSpectrumView *spectrumView;
+@property (nonatomic, strong) CADisplayLink *displayLink;
 @property (nonatomic, assign) BOOL started;
 @property (nonatomic, assign) BOOL dragging;
 @property (nonatomic, assign) CGPoint dragStartCenter;
@@ -44,6 +48,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     self.started = YES;
 
     [ANVHistory installHooks];
+    [ANVActions logEnvironment];
 
     @try {
         [self buildWindow];
@@ -60,11 +65,20 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                                                  name:UIDeviceOrientationDidChangeNotification
                                                object:nil];
 
+    if ([ANVSettings shared].spectrumEnabled) {
+        [[ANVMusicMonitor shared] start];
+        self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick:)];
+        self.displayLink.preferredFramesPerSecond = 30;
+        [self.displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+    }
+
     self.window.hidden = NO;
 }
 
 - (void)stop {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [self.displayLink invalidate];
+    self.displayLink = nil;
     self.window.hidden = YES;
     self.window = nil;
     self.barView = nil;
@@ -109,21 +123,33 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                                                             barHeight)];
     self.barView.backgroundColor = [UIColor clearColor];
     self.barView.layer.cornerRadius = barHeight / 2.0;
-    self.barView.layer.masksToBounds = YES;
-    self.barView.layer.borderWidth = 1.0;
-    self.barView.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.16].CGColor;
+    self.barView.layer.masksToBounds = NO;
 
-    UIBlurEffect *effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterialDark];
-    self.blurView = [[UIVisualEffectView alloc] initWithEffect:effect];
-    self.blurView.frame = self.barView.bounds;
-    self.blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self.barView addSubview:self.blurView];
+    if (!settings.transparentBackground) {
+        self.barView.layer.masksToBounds = YES;
+        self.barView.layer.borderWidth = 1.0;
+        self.barView.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.16].CGColor;
 
-    UIView *tint = [[UIView alloc] initWithFrame:self.barView.bounds];
-    tint.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    tint.backgroundColor = [UIColor colorWithWhite:0.04 alpha:0.35];
-    tint.userInteractionEnabled = NO;
-    [self.barView addSubview:tint];
+        UIBlurEffect *effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterialDark];
+        self.blurView = [[UIVisualEffectView alloc] initWithEffect:effect];
+        self.blurView.frame = self.barView.bounds;
+        self.blurView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self.barView addSubview:self.blurView];
+
+        UIView *tint = [[UIView alloc] initWithFrame:self.barView.bounds];
+        tint.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        tint.backgroundColor = [UIColor colorWithWhite:0.04 alpha:0.35];
+        tint.userInteractionEnabled = NO;
+        [self.barView addSubview:tint];
+    }
+
+    // 真频谱放最底层，图标在上层
+    if (settings.spectrumEnabled) {
+        CGRect spectrumFrame = CGRectInset(self.barView.bounds, padH + 6, padV + 6);
+        self.spectrumView = [[ANVSpectrumView alloc] initWithFrame:spectrumFrame];
+        self.spectrumView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self.barView addSubview:self.spectrumView];
+    }
 
     self.glyphViews = [NSMutableArray array];
     self.buttons = [NSMutableArray array];
@@ -139,6 +165,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         glyphView.kind = (ANVGlyphKind)kind;
         glyphView.glyphColor = ANVColorForGlyph((ANVGlyphKind)kind);
         glyphView.lineWidth = 3.2 * (scale < 1.0 ? 1.0 : scale);
+
+        UIImage *customImage = [self customImageForSlot:kind];
+        if (customImage) [glyphView setGlyphImage:customImage];
         [button addSubview:glyphView];
 
         [button addTarget:self action:@selector(glyphTapped:) forControlEvents:UIControlEventTouchUpInside];
@@ -155,6 +184,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
     pan.cancelsTouchesInView = NO;
     pan.delegate = self;
+    pan.minimumNumberOfTouches = 1;   // 单指可拖，跟上一版一致
     [self.barView addGestureRecognizer:pan];
 
     UILongPressGestureRecognizer *press = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
@@ -163,7 +193,49 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     press.delegate = self;
     [self.barView addGestureRecognizer:press];
 
+    UILongPressGestureRecognizer *resetPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleResetPress:)];
+    resetPress.minimumPressDuration = 2.6;
+    resetPress.cancelsTouchesInView = NO;
+    resetPress.delegate = self;
+    [self.barView addGestureRecognizer:resetPress];
+
     [self.window.rootViewController.view addSubview:self.barView];
+}
+
+#pragma mark - 自定义图标
+
+- (UIImage *)customImageForSlot:(NSInteger)slot {
+    // 想换图标就把 PNG 放进这两个目录，命名 slot0.png ~ slot3.png
+    NSArray<NSString *> *directories = @[
+        @"/var/jb/Library/Application Support/AndroNavBar/icons",
+        @"/var/mobile/Library/Application Support/AndroNavBar/icons",
+    ];
+    for (NSString *directory in directories) {
+        for (NSString *ext in @[@"png", @"jpg", @"jpeg"]) {
+            NSString *path = [directory stringByAppendingPathComponent:
+                              [NSString stringWithFormat:@"slot%ld.%@", (long)slot, ext]];
+            if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+                UIImage *image = [UIImage imageWithContentsOfFile:path];
+                if (image) return image;
+            }
+        }
+    }
+    return nil;
+}
+
+#pragma mark - 频谱刷新
+
+- (void)tick:(CADisplayLink *)link {
+    if (!self.spectrumView) return;
+
+    float levels[12] = {0};
+    [[ANVMusicMonitor shared] fillLevels:levels count:12];
+
+    CGFloat sensitivity = [ANVSettings shared].spectrumSensitivity;
+    for (NSUInteger i = 0; i < 12; i++) {
+        levels[i] = MIN(1.0f, levels[i] * sensitivity);
+    }
+    [self.spectrumView updateLevels:levels count:12];
 }
 
 #pragma mark - 布局
@@ -205,6 +277,7 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
 }
 
 - (void)handlePan:(UIPanGestureRecognizer *)pan {
+    // 双指拖动，避免在列表里滑动时误把导航条拖走
     switch (pan.state) {
         case UIGestureRecognizerStateBegan:
             self.dragging = YES;
@@ -255,6 +328,23 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
     });
 }
 
+- (void)handleResetPress:(UILongPressGestureRecognizer *)press {
+    if (press.state != UIGestureRecognizerStateBegan) return;
+
+    // 长按 2.6 秒：位置重置回底部居中
+    [[ANVSettings shared] saveCenter:CGPointMake(0.5, 0.86)];
+    [UIView animateWithDuration:0.2 animations:^{
+        self.barView.alpha = [ANVSettings shared].opacity;
+    }];
+    self.barView.userInteractionEnabled = YES;
+    [self updateFrame];
+
+    if ([ANVSettings shared].haptics) {
+        UINotificationFeedbackGenerator *generator = [[UINotificationFeedbackGenerator alloc] init];
+        [generator notificationOccurred:UINotificationFeedbackTypeSuccess];
+    }
+}
+
 #pragma mark - 按键
 
 - (void)glyphDown:(UIButton *)sender {
@@ -274,7 +364,25 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
 }
 
 - (void)glyphTapped:(UIButton *)sender {
-    ANVGlyphKind kind = (ANVGlyphKind)sender.tag;
+    // 每个位子执行什么动作由设置决定
+    ANVKeyAction action = [[ANVSettings shared] actionForSlot:sender.tag];
+    if (action == ANVKeyActionNone) {
+        ANVGlyphView *glyph = self.glyphViews[sender.tag];
+        [glyph setGlowHighlighted:YES];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            [glyph setGlowHighlighted:NO];
+        });
+        return;
+    }
+
+    ANVGlyphKind kind = ANVGlyphBack;
+    switch (action) {
+        case ANVKeyActionHome: kind = ANVGlyphHome; break;
+        case ANVKeyActionRecents: kind = ANVGlyphRecents; break;
+        case ANVKeyActionForward: kind = ANVGlyphForward; break;
+        default: kind = ANVGlyphBack; break;
+    }
 
     if ([ANVSettings shared].haptics) {
         UIImpactFeedbackGenerator *generator =

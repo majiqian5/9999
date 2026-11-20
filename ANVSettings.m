@@ -32,6 +32,10 @@ static void ANVSetPref(NSString *key, id value) {
 @property (nonatomic, assign) CGFloat centerY;
 @property (nonatomic, assign) BOOL haptics;
 @property (nonatomic, assign) BOOL autoHideInFullScreen;
+@property (nonatomic, assign) BOOL transparentBackground;
+@property (nonatomic, assign) BOOL spectrumEnabled;
+@property (nonatomic, assign) CGFloat spectrumSensitivity;
+@property (nonatomic, strong) NSArray<NSNumber *> *slotActions;
 @end
 
 @implementation ANVSettings
@@ -62,14 +66,52 @@ static void ANVSetPref(NSString *key, id value) {
 
     id cx = ANVCopyPref(@"CenterX");
     id cy = ANVCopyPref(@"CenterY");
-    self.centerX = cx ? [cx doubleValue] : 0.5;
-    self.centerY = cy ? [cy doubleValue] : 0.86;
+
+    // 老版本单指拖动容易在列表里误拖，升级后强制归位一次
+    id migrated = ANVCopyPref(@"PositionMigratedV2");
+    if (!migrated) {
+        self.centerX = 0.5;
+        self.centerY = 0.86;
+        ANVSetPref(@"CenterX", @(0.5));
+        ANVSetPref(@"CenterY", @(0.86));
+        ANVSetPref(@"PositionMigratedV2", @YES);
+    } else {
+        self.centerX = cx ? [cx doubleValue] : 0.5;
+        self.centerY = cy ? [cy doubleValue] : 0.86;
+    }
 
     id haptics = ANVCopyPref(@"Haptics");
     self.haptics = haptics ? [haptics boolValue] : YES;
 
     id autoHide = ANVCopyPref(@"AutoHideInFullScreen");
     self.autoHideInFullScreen = autoHide ? [autoHide boolValue] : YES;
+
+    id transparent = ANVCopyPref(@"TransparentBackground");
+    self.transparentBackground = transparent ? [transparent boolValue] : YES;
+
+    id spectrum = ANVCopyPref(@"SpectrumEnabled");
+    self.spectrumEnabled = spectrum ? [spectrum boolValue] : YES;
+
+    id sensitivity = ANVCopyPref(@"SpectrumSensitivity");
+    CGFloat sens = sensitivity ? [sensitivity doubleValue] : 100.0;
+    if (sens > 3.0) sens /= 100.0;
+    self.spectrumSensitivity = MAX(0.4, MIN(2.0, sens));
+
+    NSInteger defaults[4] = {ANVKeyActionBack, ANVKeyActionHome, ANVKeyActionRecents, ANVKeyActionForward};
+    NSMutableArray *actions = [NSMutableArray arrayWithCapacity:4];
+    for (NSInteger slot = 0; slot < 4; slot++) {
+        NSString *key = [NSString stringWithFormat:@"Action%ld", (long)slot];
+        id value = ANVCopyPref(key);
+        NSInteger action = value ? [value integerValue] : defaults[slot];
+        if (action < ANVKeyActionBack || action > ANVKeyActionNone) action = defaults[slot];
+        [actions addObject:@(action)];
+    }
+    self.slotActions = actions;
+}
+
+- (ANVKeyAction)actionForSlot:(NSInteger)slot {
+    if (slot < 0 || slot >= (NSInteger)self.slotActions.count) return ANVKeyActionNone;
+    return (ANVKeyAction)[self.slotActions[slot] integerValue];
 }
 
 - (void)saveCenter:(CGPoint)normalizedPoint {
