@@ -1,0 +1,127 @@
+{
+    entry = {
+        cell = PSGroupCell;
+        label = "AndroNavBar 四键导航";
+    };
+    entry = {
+        cell = PSSwitchCell;
+        defaults = "com.doubao.andronavbar";
+        key = "Enabled";
+        default = true;
+        label = "启用";
+    };
+    entry = {
+        cell = PSSwitchCell;
+        defaults = "com.doubao.andronavbar";
+        key = "TransparentBackground";
+        default = true;
+        label = "背景全透明";
+    };
+    entry = {
+        cell = PSSwitchCell;
+        defaults = "com.doubao.andronavbar";
+        key = "Haptics";
+        default = true;
+        label = "按键震动反馈";
+    };
+    entry = {
+        cell = PSSliderCell;
+        defaults = "com.doubao.andronavbar";
+        key = "Opacity";
+        default = 100;
+        min = 30;
+        max = 100;
+        label = "不透明度";
+        showValue = true;
+    };
+    entry = {
+        cell = PSSliderCell;
+        defaults = "com.doubao.andronavbar";
+        key = "Scale";
+        default = 100;
+        min = 70;
+        max = 150;
+        label = "图标大小";
+        showValue = true;
+    };
+
+    entry = {
+        cell = PSGroupCell;
+        label = "真频谱（跟随音乐）";
+    };
+    entry = {
+        cell = PSSwitchCell;
+        defaults = "com.doubao.andronavbar";
+        key = "SpectrumEnabled";
+        default = false;
+        label = "启用频谱（需先给 SpringBoard 麦克风权限）";
+    };
+    entry = {
+        cell = PSSliderCell;
+        defaults = "com.doubao.andronavbar";
+        key = "SpectrumSensitivity";
+        default = 100;
+        min = 40;
+        max = 200;
+        label = "频谱灵敏度";
+        showValue = true;
+    };
+
+    entry = {
+        cell = PSGroupCell;
+        label = "四个键的功能";
+    };
+    entry = {
+        cell = PSLinkListCell;
+        label = "第 1 个键";
+        defaults = "com.doubao.andronavbar";
+        key = "Action0";
+        default = 0;
+        detail = {
+            cell = PSListItemsController;
+            titles = ( "返回", "主屏幕", "后台", "前进", "无动作" );
+            values = ( 0, 1, 2, 3, 4 );
+        };
+    };
+    entry = {
+        cell = PSLinkListCell;
+        label = "第 2 个键";
+        defaults = "com.doubao.andronavbar";
+        key = "Action1";
+        default = 1;
+        detail = {
+            cell = PSListItemsController;
+            titles = ( "返回", "主屏幕", "后台", "前进", "无动作" );
+            values = ( 0, 1, 2, 3, 4 );
+        };
+    };
+    entry = {
+        cell = PSLinkListCell;
+        label = "第 3 个键";
+        defaults = "com.doubao.andronavbar";
+        key = "Action2";
+        default = 2;
+        detail = {
+            cell = PSListItemsController;
+            titles = ( "返回", "主屏幕", "后台", "前进", "无动作" );
+            values = ( 0, 1, 2, 3, 4 );
+        };
+    };
+    entry = {
+        cell = PSLinkListCell;
+        label = "第 4 个键";
+        defaults = "com.doubao.andronavbar";
+        key = "Action3";
+        default = 3;
+        detail = {
+            cell = PSListItemsController;
+            titles = ( "返回", "主屏幕", "后台", "前进", "无动作" );
+            values = ( 0, 1, 2, 3, 4 );
+        };
+    };
+
+    entry = {
+        cell = PSGroupCell;
+        footerText = "图标替换：把 PNG 放到 /var/jb/Library/Application Support/AndroNavBar/icons/，命名 slot0.png ~ slot3.png，respring 生效。位置单指拖动，长按 2.6 秒复位。频谱用麦克风采集环境声做 FFT，开启前先用 AppData 给 SpringBoard 开麦克风权限，否则保持关闭（未授权时代码不会启动录音，不会崩）。";
+    };
+}
