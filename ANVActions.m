@@ -101,8 +101,14 @@ static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
     ANVDumpMethods(objc_getClass("SBRecentAppLayouts"), @"ecent", @"SEL recents");
     ANVDumpMethods(objc_getClass("LSApplicationWorkspace"), @"ront", @"SEL workspace");
     ANVDumpMethods(objc_getClass("SBUIController"), @"ome", @"SEL uic");
+    ANVDumpMethods(objc_getClass("SBApplication"), @"ront", @"SEL app front");
     ANVDumpMethods(objc_getClass("SBApplication"), @"isplay", @"SEL app isplay");
-    ANVDumpMethods(objc_getClass("SpringBoard"), @"ront", @"SEL springboard front");
+    ANVDumpMethods(objc_getClass("SBApplication"), @"ctiv", @"SEL app activ");
+    ANVDumpMethods(objc_getClass("SBApplicationController"), @"pplication", @"SEL appCtl app");
+    ANVDumpMethods(objc_getClass("SpringBoard"), @"ctiv", @"SEL sb activ");
+    ANVDumpMethods(objc_getClass("SpringBoard"), @"witch", @"SEL sb switch");
+    ANVDumpMethods(objc_getClass("SBMainWorkspace"), @"ctiv", @"SEL workspace activ");
+    ANVDumpMethods(objc_getClass("SBWorkspace"), @"ctiv", @"SEL ws activ");
     ANVLog(@"--- probe end ---");
 }
 
