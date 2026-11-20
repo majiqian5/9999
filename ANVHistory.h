@@ -11,6 +11,10 @@
 + (void)installHooks;
 
 - (void)record:(NSString *)bundleID;
+
+/// 0.4 秒轮询 SpringBoard 的 _switcherController 拿当前 App，自己记历史
+- (void)startTracking;
+- (NSString *)frontmostBundleID;
 - (void)suppressRecordingFor:(NSTimeInterval)seconds;
 
 - (NSString *)currentBundleID;
