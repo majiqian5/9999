@@ -63,6 +63,17 @@ static void ANVLog(NSString *format, ...) {
     id ws = [wsClass respondsToSelector:@selector(defaultWorkspace)] ? [(id)wsClass performSelector:@selector(defaultWorkspace)] : nil;
     ANVLog(@"LSApplicationWorkspace=%@ open=%d", wsClass,
            [ws respondsToSelector:NSSelectorFromString(@"openApplicationWithBundleID:")]);
+    ANVLog(@"switcher extra: activateWithSource=%d present=%d underscoreToggle=%d",
+           [switcher respondsToSelector:NSSelectorFromString(@"activateSwitcherWithSource:")],
+           [switcher respondsToSelector:NSSelectorFromString(@"presentAppSwitcher")],
+           [switcher respondsToSelector:NSSelectorFromString(@"_toggleMainSwitcherNoninteractivelyWithSource:animated:")]);
+
+    id appController = [objc_getClass("SBApplicationController") respondsToSelector:@selector(sharedInstance)]
+                     ? [objc_getClass("SBApplicationController") performSelector:@selector(sharedInstance)] : nil;
+    ANVLog(@"frontmost via SBApplicationController=%d", [appController respondsToSelector:NSSelectorFromString(@"frontmostApplication")]);
+    Class wsProbe = objc_getClass("LSApplicationWorkspace");
+    id wsInstance = [wsProbe respondsToSelector:@selector(defaultWorkspace)] ? [wsProbe performSelector:@selector(defaultWorkspace)] : nil;
+    ANVLog(@"frontmost via LSApplicationWorkspace=%d", [wsInstance respondsToSelector:NSSelectorFromString(@"frontmostApplication")]);
     ANVLog(@"--- probe end ---");
 }
 
@@ -223,6 +234,24 @@ static void ANVLog(NSString *format, ...) {
             ANVLog(@"switcher via activateSwitcherNoninteractively -> yes");
             return YES;
         }
+        SEL activateWithSource = NSSelectorFromString(@"activateSwitcherWithSource:");
+        if ([switcher respondsToSelector:activateWithSource]) {
+            NSMethodSignature *sig = [switcher methodSignatureForSelector:activateWithSource];
+            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+            inv.target = switcher;
+            inv.selector = activateWithSource;
+            NSUInteger source = 1;
+            [inv setArgument:&source atIndex:2];
+            [inv invoke];
+            ANVLog(@"switcher via activateSwitcherWithSource: -> yes");
+            return YES;
+        }
+        SEL present = NSSelectorFromString(@"presentAppSwitcher");
+        if ([switcher respondsToSelector:present]) {
+            [switcher performSelector:present];
+            ANVLog(@"switcher via presentAppSwitcher -> yes");
+            return YES;
+        }
         SEL legacyToggle = NSSelectorFromString(@"toggleSwitcher");
         if ([switcher respondsToSelector:legacyToggle]) {
             [switcher performSelector:legacyToggle];
@@ -233,12 +262,42 @@ static void ANVLog(NSString *format, ...) {
         ANVLog(@"switcher exception: %@", e);
     }
     ANVLog(@"switcher FAILED (no selector matched)");
+
+    // 最后兜底：连按两次 Home，等价于双击 Home 键调出多任务
+    @try {
+        UIApplication *app = [UIApplication sharedApplication];
+        SEL sel = NSSelectorFromString(@"_simulateHomeButtonPressWithCompletion:");
+        if ([app respondsToSelector:sel]) {
+            [app performSelector:sel withObject:nil];
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                [app performSelector:sel withObject:nil];
+            });
+            ANVLog(@"switcher via double home press -> tried");
+            return YES;
+        }
+    } @catch (NSException *e) {
+        ANVLog(@"double home exception: %@", e);
+    }
     return NO;
 }
 
 #pragma mark - 当前 App
 
 + (NSString *)frontmostBundleID {
+    @try {
+        Class workspaceClass = objc_getClass("LSApplicationWorkspace");
+        id workspace = [workspaceClass respondsToSelector:@selector(defaultWorkspace)]
+                     ? [(id)workspaceClass performSelector:@selector(defaultWorkspace)] : nil;
+        for (NSString *name in @[@"frontmostApplication", @"frontmostDisplayIdentifier"]) {
+            SEL sel = NSSelectorFromString(name);
+            if (![workspace respondsToSelector:sel]) continue;
+            id value = [workspace performSelector:sel];
+            NSString *bundleID = [value isKindOfClass:[NSString class]] ? value : [value valueForKey:@"bundleIdentifier"];
+            if ([bundleID isKindOfClass:[NSString class]] && bundleID.length) return bundleID;
+        }
+    } @catch (__unused NSException *e) {}
+
     @try {
         Class appControllerClass = objc_getClass("SBApplicationController");
         if (appControllerClass) {

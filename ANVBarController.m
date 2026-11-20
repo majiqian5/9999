@@ -31,6 +31,19 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, assign) CGPoint dragStartCenter;
 @end
 
+// 空白处不接手势，让底下的图标照常能点
+@interface ANVPassthroughView : UIView
+@end
+
+@implementation ANVPassthroughView
+
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+    UIView *hit = [super hitTest:point withEvent:event];
+    return (hit == self) ? nil : hit;
+}
+
+@end
+
 @implementation ANVBarController
 
 + (instancetype)sharedInstance {
@@ -148,9 +161,11 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     }
 
     self.panelView = panel;
-    [self.barView addSubview:panel];
-    panel.center = CGPointMake(CGRectGetMidX(self.barView.bounds),
-                               CGRectGetMinY(self.barView.bounds) - CGRectGetHeight(panel.bounds) / 2.0 - 8);
+    // 面板放到全屏容器上，否则超出 bar 边界就收不到点击
+    [self.window.rootViewController.view addSubview:panel];
+    CGRect barFrame = self.barView.frame;
+    panel.center = CGPointMake(CGRectGetMidX(barFrame),
+                               CGRectGetMinY(barFrame) - CGRectGetHeight(panel.bounds) / 2.0 - 8);
 }
 
 - (void)hidePanel {
@@ -232,15 +247,19 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 #pragma mark - 窗口
 
 - (void)buildWindow {
-    self.window = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 240, 64)];
+    CGRect screen = [UIScreen mainScreen].bounds;
+    self.window = [[UIWindow alloc] initWithFrame:screen];
     self.window.windowLevel = UIWindowLevelAlert + 1;
     self.window.backgroundColor = [UIColor clearColor];
     self.window.opaque = NO;
 
-    UIViewController *root = [[UIViewController alloc] init];
-    root.view.backgroundColor = [UIColor clearColor];
-    root.view.userInteractionEnabled = YES;
-    self.window.rootViewController = root;
+    ANVPassthroughView *root = [[ANVPassthroughView alloc] initWithFrame:screen];
+    root.backgroundColor = [UIColor clearColor];
+    root.userInteractionEnabled = YES;
+
+    UIViewController *controller = [[UIViewController alloc] init];
+    controller.view = root;
+    self.window.rootViewController = controller;
 
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
@@ -344,6 +363,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     [self.barView addGestureRecognizer:resetPress];
 
     [self.window.rootViewController.view addSubview:self.barView];
+    [self updateFrame];
 }
 
 #pragma mark - 自定义图标
@@ -388,6 +408,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     if (!self.window || !self.barView) return;
 
     CGRect screen = [UIScreen mainScreen].bounds;
+    if (!CGRectEqualToRect(self.window.frame, screen)) self.window.frame = screen;
+
     CGSize barSize = self.barView.bounds.size;
     ANVSettings *settings = [ANVSettings shared];
 
@@ -401,9 +423,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     center.x = MIN(MAX(center.x, halfW + 4), maxX);
     center.y = MIN(MAX(center.y, halfH + 24), maxY);
 
-    self.window.frame = CGRectMake(center.x - halfW, center.y - halfH,
-                                   barSize.width, barSize.height);
-    self.barView.frame = self.window.bounds;
+    self.barView.center = center;
 }
 
 - (void)orientationChanged:(NSNotification *)note {
@@ -425,20 +445,20 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
     switch (pan.state) {
         case UIGestureRecognizerStateBegan:
             self.dragging = YES;
-            self.dragStartCenter = self.window.center;
+            self.dragStartCenter = self.barView.center;
             break;
         case UIGestureRecognizerStateChanged: {
             CGPoint translation = [pan translationInView:nil];
             CGPoint center = CGPointMake(self.dragStartCenter.x + translation.x,
                                          self.dragStartCenter.y + translation.y);
-            self.window.center = center;
+            self.barView.center = center;
             break;
         }
         case UIGestureRecognizerStateEnded:
         case UIGestureRecognizerStateCancelled: {
             self.dragging = NO;
             CGRect screen = [UIScreen mainScreen].bounds;
-            CGPoint center = self.window.center;
+            CGPoint center = self.barView.center;
             if (screen.size.width > 0 && screen.size.height > 0) {
                 CGPoint normalized = CGPointMake(center.x / screen.size.width,
                                                  center.y / screen.size.height);
