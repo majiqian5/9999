@@ -109,6 +109,23 @@ static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
     ANVDumpMethods(objc_getClass("SpringBoard"), @"witch", @"SEL sb switch");
     ANVDumpMethods(objc_getClass("SBMainWorkspace"), @"ctiv", @"SEL workspace activ");
     ANVDumpMethods(objc_getClass("SBWorkspace"), @"ctiv", @"SEL ws activ");
+    ANVDumpMethods(objc_getClass("SBMainWorkspace"), @"ront", @"SEL workspace front");
+
+    // SpringBoard 自己的 switcher controller，里面通常有 appLayouts/recents
+    @try {
+        id springBoard = [UIApplication sharedApplication];
+        id switcherController = [springBoard valueForKey:@"_switcherController"];
+        ANVLog(@"switcherController=%@ class=%@", switcherController,
+               NSStringFromClass([switcherController class]));
+        if (switcherController) {
+            ANVDumpMethods([switcherController class], @"ayout", @"SEL swc layout");
+            ANVDumpMethods([switcherController class], @"ecent", @"SEL swc rec");
+            ANVDumpMethods([switcherController class], @"urrent", @"SEL swc cur");
+            ANVDumpMethods([switcherController class], @"pp", @"SEL swc app");
+        }
+    } @catch (NSException *e) {
+        ANVLog(@"switcherController probe exception: %@", e.reason);
+    }
     ANVLog(@"--- probe end ---");
 }
 
