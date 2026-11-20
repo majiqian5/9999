@@ -44,8 +44,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
 - (void)start {
     if (self.started) return;
-    if (![ANVSettings shared].enabled) return;
+    if (![ANVSettings shared].enabled) { [ANVActions note:@"start skipped: disabled"]; return; }
     self.started = YES;
+    [ANVActions note:[NSString stringWithFormat:@"start begin enabled=1 spectrum=%d", [ANVSettings shared].spectrumEnabled]];
 
     [ANVHistory installHooks];
     [ANVActions logEnvironment];
@@ -54,7 +55,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [self buildWindow];
         [self buildBar];
         [self updateFrame];
+        [ANVActions note:[NSString stringWithFormat:@"bar built frame=%@", NSStringFromCGRect(self.barView.frame)]];
     } @catch (NSException *e) {
+        [ANVActions note:[NSString stringWithFormat:@"build failed: %@", e.reason]];
         NSLog(@"[AndroNavBar] build failed: %@", e);
         self.started = NO;
         return;
@@ -73,6 +76,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     }
 
     self.window.hidden = NO;
+    [ANVActions note:@"window shown"];
 }
 
 - (void)stop {

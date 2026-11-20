@@ -90,7 +90,7 @@ static void ANVSetPref(NSString *key, id value) {
     self.transparentBackground = transparent ? [transparent boolValue] : YES;
 
     id spectrum = ANVCopyPref(@"SpectrumEnabled");
-    self.spectrumEnabled = spectrum ? [spectrum boolValue] : YES;
+    self.spectrumEnabled = spectrum ? [spectrum boolValue] : NO;
 
     id sensitivity = ANVCopyPref(@"SpectrumSensitivity");
     CGFloat sens = sensitivity ? [sensitivity doubleValue] : 100.0;

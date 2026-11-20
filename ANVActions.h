@@ -2,6 +2,8 @@
 #import "ANVGlyphView.h"
 
 @interface ANVActions : NSObject
+
++ (void)note:(NSString *)message;
 /// 执行某个键的动作，返回是否成功
 + (BOOL)performGlyph:(ANVGlyphKind)kind;
 

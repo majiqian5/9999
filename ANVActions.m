@@ -35,6 +35,10 @@ static void ANVLog(NSString *format, ...) {
 
 #pragma mark - 环境探测
 
++ (void)note:(NSString *)message {
+    ANVLog(@"[bar] %@", message);
+}
+
 + (void)logEnvironment {
     ANVLog(@"--- AndroNavBar probe begin ---");
     ANVLog(@"UIApplication: homePress=%d homePressCompletion=%d",
