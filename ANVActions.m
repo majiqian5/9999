@@ -200,6 +200,26 @@ static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
 #pragma mark - 后台 / 多任务
 
 + (BOOL)toggleAppSwitcher {
+    // iOS 16：SBMainSwitcherViewController 这个类根本不存在，走 UIController 的 home 双击
+    if (!objc_getClass("SBMainSwitcherViewController")) {
+        Class uicClass = objc_getClass("SBUIController");
+        id uic = [uicClass respondsToSelector:@selector(sharedInstance)]
+               ? [uicClass performSelector:@selector(sharedInstance)] : nil;
+        for (NSString *name in @[@"handleHomeButtonDoublePressDown",
+                                 @"handleHomeButtonDoublePress",
+                                 @"handleHomeButtonDoublePressUp"]) {
+            SEL sel = NSSelectorFromString(name);
+            if (![uic respondsToSelector:sel]) continue;
+            @try {
+                [uic performSelector:sel];
+                ANVLog(@"switcher via SBUIController %@ -> yes", name);
+                return YES;
+            } @catch (NSException *e) {
+                ANVLog(@"switcher %@ exception: %@", name, e);
+            }
+        }
+    }
+
     @try {
         Class switcherClass = objc_getClass("SBMainSwitcherViewController");
         if (!switcherClass) return NO;
@@ -307,6 +327,72 @@ static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
         ANVLog(@"double home exception: %@", e);
     }
     return NO;
+}
+
+#pragma mark - 最近 App 列表
+
++ (NSArray<NSString *> *)recentBundleIDs {
+    id recents = nil;
+    Class recentsClass = objc_getClass("SBRecentAppLayouts");
+    if (recentsClass && [recentsClass respondsToSelector:@selector(sharedInstance)]) {
+        recents = [recentsClass performSelector:@selector(sharedInstance)];
+    }
+    if (!recents) return @[];
+
+    NSArray *layouts = nil;
+    SEL incl = NSSelectorFromString(@"recentsIncludingHiddenAppLayouts:");
+    if ([recents respondsToSelector:incl]) {
+        @try {
+            NSMethodSignature *sig = [recents methodSignatureForSelector:incl];
+            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+            inv.target = recents;
+            inv.selector = incl;
+            BOOL yes = YES;
+            [inv setArgument:&yes atIndex:2];
+            [inv invoke];
+            __unsafe_unretained id result = nil;
+            [inv getReturnValue:&result];
+            if ([result isKindOfClass:[NSArray class]]) layouts = result;
+        } @catch (NSException *e) {
+            ANVLog(@"recents invoke exception: %@", e);
+        }
+    }
+    if (!layouts.count && [recents respondsToSelector:NSSelectorFromString(@"_recentsFromPrefs")]) {
+        @try { layouts = [recents performSelector:NSSelectorFromString(@"_recentsFromPrefs")]; }
+        @catch (__unused NSException *e) {}
+    }
+
+    NSMutableArray<NSString *> *bundleIDs = [NSMutableArray array];
+    for (id layout in layouts) {
+        NSMutableArray *candidates = [NSMutableArray array];
+        @try {
+            id items = [layout valueForKey:@"allItems"];
+            if ([items isKindOfClass:[NSArray class]]) {
+                for (id item in items) {
+                    id ident = [item valueForKey:@"displayIdentifier"];
+                    if (![ident isKindOfClass:[NSString class]]) ident = [item valueForKey:@"bundleIdentifier"];
+                    if ([ident isKindOfClass:[NSString class]] && [ident length]) [candidates addObject:ident];
+                }
+            }
+        } @catch (__unused NSException *e) {}
+        if (!candidates.count) {
+            @try {
+                NSDictionary *map = [layout valueForKey:@"rolesToLayoutItemsMap"];
+                for (id item in map.allValues) {
+                    id ident = [item valueForKey:@"displayIdentifier"];
+                    if ([ident isKindOfClass:[NSString class]] && [ident length]) [candidates addObject:ident];
+                }
+            } @catch (__unused NSException *e) {}
+        }
+        for (NSString *bundleID in candidates) {
+            if ([bundleID isEqualToString:@"com.apple.springboard"]) continue;
+            if ([bundleIDs containsObject:bundleID]) continue;
+            [bundleIDs addObject:bundleID];
+            break;
+        }
+    }
+    ANVLog(@"recents -> %@", bundleIDs);
+    return bundleIDs;
 }
 
 #pragma mark - 当前 App

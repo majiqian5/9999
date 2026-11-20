@@ -14,4 +14,6 @@
 + (BOOL)goHome;
 + (BOOL)toggleAppSwitcher;
 + (NSString *)frontmostBundleID;
+/// 最近打开过的 App bundleID 列表（最新的在前）
++ (NSArray<NSString *> *)recentBundleIDs;
 @end

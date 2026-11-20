@@ -1,4 +1,5 @@
 #import "ANVHistory.h"
+#import "ANVActions.h"
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <substrate.h>
@@ -144,6 +145,15 @@ static void ANVSetFrontmostHook(id self, SEL _cmd, BOOL frontmost) {
 }
 
 - (NSString *)fallbackRecentBundleID {
+    @try {
+        NSArray<NSString *> *list = [ANVActions recentBundleIDs];
+        NSString *current = self.current;
+        for (NSString *bundleID in list) {
+            if (current.length && [bundleID isEqualToString:current]) continue;
+            return bundleID;
+        }
+    } @catch (__unused NSException *e) {}
+
     @try {
         Class recentsClass = objc_getClass("SBRecentAppLayouts");
         if (!recentsClass) return nil;
