@@ -101,6 +101,8 @@ static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
     ANVDumpMethods(objc_getClass("SBRecentAppLayouts"), @"ecent", @"SEL recents");
     ANVDumpMethods(objc_getClass("LSApplicationWorkspace"), @"ront", @"SEL workspace");
     ANVDumpMethods(objc_getClass("SBUIController"), @"ome", @"SEL uic");
+    ANVDumpMethods(objc_getClass("SBApplication"), @"isplay", @"SEL app isplay");
+    ANVDumpMethods(objc_getClass("SpringBoard"), @"ront", @"SEL springboard front");
     ANVLog(@"--- probe end ---");
 }
 
@@ -332,12 +334,13 @@ static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
 #pragma mark - 最近 App 列表
 
 + (NSArray<NSString *> *)recentBundleIDs {
+    ANVLog(@"recents: begin");
     id recents = nil;
     Class recentsClass = objc_getClass("SBRecentAppLayouts");
     if (recentsClass && [recentsClass respondsToSelector:@selector(sharedInstance)]) {
         recents = [recentsClass performSelector:@selector(sharedInstance)];
     }
-    if (!recents) return @[];
+    if (!recents) { ANVLog(@"recents: sharedInstance 为 nil"); return @[]; }
 
     NSArray *layouts = nil;
     SEL incl = NSSelectorFromString(@"recentsIncludingHiddenAppLayouts:");
@@ -362,8 +365,15 @@ static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
         @catch (__unused NSException *e) {}
     }
 
+    ANVLog(@"recents: layouts=%lu", (unsigned long)layouts.count);
     NSMutableArray<NSString *> *bundleIDs = [NSMutableArray array];
+    NSInteger debugIndex = 0;
     for (id layout in layouts) {
+        if (debugIndex < 2) {
+            ANVLog(@"recents: layout[%ld] class=%@ desc=%.160@",
+                   (long)debugIndex, NSStringFromClass([layout class]), [layout description]);
+            debugIndex++;
+        }
         NSMutableArray *candidates = [NSMutableArray array];
         @try {
             id items = [layout valueForKey:@"allItems"];
@@ -382,6 +392,12 @@ static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
                     id ident = [item valueForKey:@"displayIdentifier"];
                     if ([ident isKindOfClass:[NSString class]] && [ident length]) [candidates addObject:ident];
                 }
+            } @catch (__unused NSException *e) {}
+        }
+        if (!candidates.count) {
+            @try {
+                id ident = [layout valueForKey:@"bundleIdentifier"];
+                if ([ident isKindOfClass:[NSString class]] && [(NSString *)ident length]) [candidates addObject:ident];
             } @catch (__unused NSException *e) {}
         }
         for (NSString *bundleID in candidates) {
