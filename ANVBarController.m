@@ -1,5 +1,7 @@
 #import "ANVBarController.h"
 #import "ANVGlyphView.h"
+#import <objc/runtime.h>
+#import <objc/message.h>
 #import "ANVActions.h"
 #import "ANVHistory.h"
 #import "ANVSettings.h"
@@ -29,6 +31,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, assign) BOOL started;
 @property (nonatomic, assign) BOOL dragging;
 @property (nonatomic, assign) CGPoint dragStartCenter;
+@property (nonatomic, strong) NSTimer *lockTimer;
+@property (nonatomic, assign) BOOL hiddenByLock;
 @end
 
 // 空白处不接手势，让底下的图标照常能点
@@ -93,6 +97,13 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     self.window.hidden = NO;
     [ANVActions note:@"window shown"];
 
+    // 锁屏时自动隐藏，解锁恢复
+    [self.lockTimer invalidate];
+    self.lockTimer = [NSTimer timerWithTimeInterval:0.4 repeats:YES block:^(NSTimer *timer) {
+        [self updateLockVisibility];
+    }];
+    [[NSRunLoop mainRunLoop] addTimer:self.lockTimer forMode:NSRunLoopCommonModes];
+
     // 轮询前台 App，自己维护历史栈，不依赖 hook 是否装得上
     [self.frontTimer invalidate];
     self.frontTimer = [NSTimer scheduledTimerWithTimeInterval:0.8
@@ -100,6 +111,41 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                                                      selector:@selector(pollFrontmost)
                                                      userInfo:nil
                                                       repeats:YES];
+}
+
+- (BOOL)isDeviceLocked {
+    @try {
+        Class lockClass = objc_getClass("SBLockScreenManager");
+        if (lockClass && [lockClass respondsToSelector:@selector(sharedInstance)]) {
+            id manager = ((id (*)(id, SEL))objc_msgSend)(lockClass, @selector(sharedInstance));
+            for (NSString *name in @[@"isLockScreenVisible", @"isLockScreenShowing", @"isUILocked"]) {
+                SEL sel = NSSelectorFromString(name);
+                if ([manager respondsToSelector:sel]) {
+                    return ((BOOL (*)(id, SEL))objc_msgSend)(manager, sel);
+                }
+            }
+        }
+        Class workspaceClass = objc_getClass("SBWorkspace");
+        if (workspaceClass && [workspaceClass respondsToSelector:@selector(sharedInstance)]) {
+            id workspace = ((id (*)(id, SEL))objc_msgSend)(workspaceClass, @selector(sharedInstance));
+            for (NSString *name in @[@"isLocked", @"isUILocked"]) {
+                SEL sel = NSSelectorFromString(name);
+                if ([workspace respondsToSelector:sel]) {
+                    return ((BOOL (*)(id, SEL))objc_msgSend)(workspace, sel);
+                }
+            }
+        }
+    } @catch (__unused NSException *e) {}
+    return NO;
+}
+
+- (void)updateLockVisibility {
+    BOOL locked = [self isDeviceLocked];
+    if (locked == self.barView.hidden) return;   // 状态没变
+    self.barView.hidden = locked;
+    self.hiddenByLock = locked;
+    if (locked) [self hidePanel];
+    [ANVActions note:[NSString stringWithFormat:@"lock hide -> %d", locked]];
 }
 
 - (void)pollFrontmost {
@@ -308,6 +354,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [self.displayLink invalidate];
     self.displayLink = nil;
+    [self.lockTimer invalidate];
+    self.lockTimer = nil;
     self.window.hidden = YES;
     self.window = nil;
     self.barView = nil;
@@ -486,13 +534,14 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     CGFloat halfW = barSize.width / 2.0;
     CGFloat halfH = barSize.height / 2.0;
-    CGFloat maxX = MAX(halfW + 4, screen.size.width - halfW - 4);
-    CGFloat maxY = MAX(halfH + 30, screen.size.height - halfH - 10);
+    // 允许贴到屏幕最底/最顶：不再留 10~24pt 的边距，只要不整条跑出屏幕就行
+    CGFloat maxX = MAX(halfW, screen.size.width - halfW);
+    CGFloat maxY = MAX(halfH, screen.size.height - halfH);
 
     CGPoint center = CGPointMake(screen.size.width * settings.centerX,
                                  screen.size.height * settings.centerY);
-    center.x = MIN(MAX(center.x, halfW + 4), maxX);
-    center.y = MIN(MAX(center.y, halfH + 24), maxY);
+    center.x = MIN(MAX(center.x, halfW), maxX);
+    center.y = MIN(MAX(center.y, halfH), maxY);
 
     self.barView.center = center;
 }
@@ -533,7 +582,11 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
             CGRect screen = [UIScreen mainScreen].bounds;
             CGPoint center = self.barView.center;
             if (screen.size.width > 0 && screen.size.height > 0) {
-                CGPoint normalized = CGPointMake(center.x / screen.size.width,
+                center.x = MIN(MAX(center.x, self.barView.bounds.size.width / 2.0),
+                           screen.size.width - self.barView.bounds.size.width / 2.0);
+            center.y = MIN(MAX(center.y, self.barView.bounds.size.height / 2.0),
+                           screen.size.height - self.barView.bounds.size.height / 2.0);
+            CGPoint normalized = CGPointMake(center.x / screen.size.width,
                                                  center.y / screen.size.height);
                 [[ANVSettings shared] saveCenter:normalized];
                 [self updateFrame];

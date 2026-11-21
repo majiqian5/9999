@@ -281,12 +281,17 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
     NSFileManager *fm = [NSFileManager defaultManager];
     NSDictionary *attrs = [fm attributesOfItemAtPath:path error:nil];
     if (!attrs) {
-        // 没装 AxsEQ 或者还没启动过，先安静地跳过
+        static int missingLogs = 0;
+        if (missingLogs < 2) {
+            missingLogs++;
+            [ANVActions note:@"axs levels.txt missing (/var/tmp/AxsEQ/levels.txt)"];
+        }
         for (NSUInteger i = 0; i < kANVBandCount; i++) _axsLevels[i] *= 0.7f;
         self.axsAvailable = NO;
         return;
     }
 
+    static int readLogs = 0;
     NSDate *modified = attrs[NSFileModificationDate];
     double age = modified ? -[modified timeIntervalSinceNow] : 999.0;
 
@@ -306,7 +311,18 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
         if (found < 10) values[found++] = (float)v;
         if (found >= 10) break;
     }
-    if (found < 4) return;
+    if (found < 4) {
+        if (readLogs < 3) {
+            readLogs++;
+            [ANVActions note:[NSString stringWithFormat:@"axs parse failed n=%lu text=%@",
+                              (unsigned long)found, [text substringToIndex:MIN(text.length, 60u)]]];
+        }
+        return;
+    }
+    if (!self.axsAvailable) {
+        [ANVActions note:[NSString stringWithFormat:@"axs online n=%lu v0=%.2f age=%.2f",
+                          (unsigned long)found, values[0], age]];
+    }
     self.axsAvailable = YES;
 
     // 超过 0.6 秒没更新（暂停/停止播放）就当静音，柱子立刻落下去
