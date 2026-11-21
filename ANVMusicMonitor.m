@@ -30,6 +30,14 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
 
 @implementation ANVMusicMonitor {
     float _axsLevels[10];
+    float _micLevels[10];
+    CGFloat _simTime;
+    AVAudioEngine *_engine;
+    BOOL _tapInstalled;
+    FFTSetup _fftSetup;
+    float *_window;
+    float _axsPeak;      // 自适应量程的峰值（AxsEQ 数值不落在 range.txt 里时用）
+    int _axsScaleMode;   // 0 已归一化 1 按 range.txt 2 自适应
 }
 
 + (instancetype)shared {
@@ -108,6 +116,113 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
 }
 
 #pragma mark - 麦克风 / FFT
+
+- (void)setMicEnabled:(BOOL)micEnabled {
+    _micEnabled = micEnabled;
+    if (micEnabled) {
+        [self startMicCapture];
+    } else {
+        [self stopMicCapture];
+    }
+}
+
+- (void)startMicCapture {
+    if (_engine) return;
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    if (session.recordPermission != AVAudioSessionRecordPermissionGranted) {
+        self.micAvailable = NO;
+        [ANVActions note:@"mic: 未授权（需要在系统设置里给 SpringBoard 麦克风权限）"];
+        return;
+    }
+
+    NSError *error = nil;
+    @try {
+        // MixWithOthers 是关键：不抢音频焦点，音乐继续播
+        [session setCategory:AVAudioSessionCategoryPlayAndRecord
+                  withOptions:AVAudioSessionCategoryOptionMixWithOthers |
+                              AVAudioSessionCategoryOptionDefaultToSpeaker |
+                              AVAudioSessionCategoryOptionInterruptSpokenAudioAndMixWithOthers
+                        error:&error];
+        [session setMode:AVAudioSessionModeMeasurement error:&error];
+        [session setActive:YES error:&error];
+
+        _fftSetup = vDSP_create_fftsetup(10, kFFTRadix2);
+        _window = calloc(1024, sizeof(float));
+        vDSP_hann_window(_window, 1024, vDSP_HANN_NORM);
+
+        AVAudioEngine *engine = [[AVAudioEngine alloc] init];
+        AVAudioInputNode *input = engine.inputNode;
+        AVAudioFormat *format = [input outputFormatForBus:0];
+        __weak typeof(self) weakSelf = self;
+        [input installTapOnBus:0 bufferSize:1024 format:format
+                         block:^(AVAudioPCMBuffer *buffer, AVAudioTime *when) {
+            [weakSelf processMicBuffer:buffer];
+        }];
+        _tapInstalled = YES;
+        [engine prepare];
+        if (![engine startAndReturnError:&error]) {
+            self.micAvailable = NO;
+            [self stopMicCapture];
+            return;
+        }
+        _engine = engine;
+        self.micAvailable = YES;
+        [ANVActions note:@"mic: 采集已启动"];
+    } @catch (NSException *e) {
+        self.micAvailable = NO;
+        [self stopMicCapture];
+        [ANVActions note:[NSString stringWithFormat:@"mic: 启动异常 %@", e.reason]];
+    }
+}
+
+- (void)stopMicCapture {
+    @try {
+        if (_tapInstalled && _engine) {
+            [_engine.inputNode removeTapOnBus:0];
+            _tapInstalled = NO;
+        }
+        [_engine stop];
+    } @catch (__unused NSException *e) {}
+    _engine = nil;
+    if (_fftSetup) { vDSP_destroy_fftsetup(_fftSetup); _fftSetup = NULL; }
+    if (_window) { free(_window); _window = NULL; }
+    for (NSUInteger i = 0; i < 10; i++) _micLevels[i] = 0;
+}
+
+- (void)processMicBuffer:(AVAudioPCMBuffer *)buffer {
+    if (!_fftSetup || !buffer.floatChannelData) return;
+    float *samples = buffer.floatChannelData[0];
+    if (buffer.frameLength < 1024) return;
+
+    static float windowed[1024];
+    static float real[512];
+    static float imag[512];
+    static float magnitudes[512];
+    static DSPSplitComplex split;
+
+    vDSP_vmul(samples, 1, _window, 1, windowed, 1, 1024);
+    split.realp = real;
+    split.imagp = imag;
+    vDSP_ctoz((DSPComplex *)windowed, 2, &split, 1, 512);
+    vDSP_fft_zrip(_fftSetup, &split, 1, 10, kFFTDirection_Forward);
+    split.imagp[0] = 0.0f;
+    vDSP_zvabs(&split, 1, magnitudes, 1, 512);
+
+    NSUInteger minBin = 2, maxBin = 200;
+    float ratio = powf((float)maxBin / (float)minBin, 1.0f / 10.0f);
+    for (NSUInteger band = 0; band < 10; band++) {
+        NSUInteger startB = (NSUInteger)(minBin * powf(ratio, band));
+        NSUInteger endB = (NSUInteger)(minBin * powf(ratio, band + 1));
+        endB = MIN(MAX(endB, startB + 1), 512);
+        float sum = 0;
+        for (NSUInteger i = startB; i < endB; i++) sum += magnitudes[i];
+        float avg = sum / (float)(endB - startB);
+        float level = avg > 0.00001f ? log10f(avg * 400.0f + 1.0f) / 2.5f : 0.0f;
+        level = MIN(MAX(level, 0.0f), 1.0f);
+        float old = _micLevels[band];
+        _micLevels[band] = level > old ? level : old * 0.82f + level * 0.18f;
+    }
+}
 
 - (void)startMicrophone {
     // 曾经用 AVAudioEngine 采麦克风，但它会重新设定全局 AudioSession 类别
@@ -228,6 +343,7 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
 - (void)startAxsReader {
     if (self.axsTimer) return;
     [self loadAxsRange];
+    [ANVActions note:@"axs: reader started"];
     self.axsTimer = [NSTimer timerWithTimeInterval:0.08 repeats:YES block:^(NSTimer *timer) {
         [self pollAxsLevels];
     }];
@@ -237,7 +353,14 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
 - (void)pollAxsLevels {
     NSString *path = @"/var/tmp/AxsEQ/levels.txt";
     NSFileManager *fm = [NSFileManager defaultManager];
+    static BOOL loggedFirstTick = NO;
     NSDictionary *attrs = [fm attributesOfItemAtPath:path error:nil];
+    if (!loggedFirstTick) {
+        loggedFirstTick = YES;
+        [ANVActions note:[NSString stringWithFormat:@"axs: first tick attrs=%@ readable=%d",
+                          attrs ? attrs[NSFileSize] : @"nil",
+                          (int)(attrs != nil)]];
+    }
     if (!attrs) {
         static int missingLogs = 0;
         if (missingLogs < 2) {
@@ -253,10 +376,21 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
     NSDate *modified = attrs[NSFileModificationDate];
     double age = modified ? -[modified timeIntervalSinceNow] : 999.0;
 
+    static NSTimeInterval lastEmptyLog = 0;
     NSString *text = [NSString stringWithContentsOfFile:path
                                                encoding:NSUTF8StringEncoding
                                                   error:nil];
-    if (!text.length) return;
+    if (!text.length) {
+        NSTimeInterval nowE = [NSDate date].timeIntervalSince1970;
+        if (nowE - lastEmptyLog > 5.0) {
+            lastEmptyLog = nowE;
+            NSNumber *size = attrs[NSFileSize];
+            [ANVActions note:[NSString stringWithFormat:
+                @"axs: levels.txt 存在但内容为空 size=%@ age=%.1f（AxsEQ 还没写数，先跑 axs_on）",
+                size, age]];
+        }
+        return;
+    }
 
     NSArray<NSString *> *parts = [text componentsSeparatedByCharactersInSet:
                                   [NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -269,6 +403,24 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
         if (found < 10) values[found++] = (float)v;
         if (found >= 10) break;
     }
+    // AxsEQ 有时会写出一串 nan（它自己的算法在除零/未初始化时崩了），
+    // 直接当 0 处理，否则整张频谱会被 NaN 渲染成空白
+    BOOL allNaN = YES;
+    for (NSUInteger i = 0; i < found; i++) {
+        if (isnan(values[i]) || isinf(values[i])) values[i] = self.axsMinDb;
+        else allNaN = NO;
+    }
+    if (allNaN && found > 0) {
+        static NSTimeInterval lastNaNLog = 0;
+        NSTimeInterval nowN = [NSDate date].timeIntervalSince1970;
+        if (nowN - lastNaNLog > 5.0) {
+            lastNaNLog = nowN;
+            [ANVActions note:@"axs: levels.txt 全是 nan（AxsEQ 采样失效，不是插件问题）"];
+        }
+        for (NSUInteger i = 0; i < kANVBandCount; i++) _axsLevels[i] *= 0.7f;
+        return;
+    }
+
     if (found < 4) {
         if (readLogs < 3) {
             readLogs++;
@@ -287,14 +439,80 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
     BOOL fresh = (age < 0.6);
     float range = MAX(1.0f, self.axsMaxDb - self.axsMinDb);
 
+    // 关键：AxsEQ v1.8.2 写出来的数（实测 6..40）根本不在 range.txt 的 -42..6 量程里。
+    // 按 range 夹会得到 (40+42)/48 > 1 → 10 根柱子全部顶满，看起来就是一条静止的平线。
+    // 所以先判断标度，不对就自动换一套。
+    float mx = -99999.f, mn = 99999.f;
+    for (NSUInteger i = 0; i < found; i++) {
+        mx = MAX(mx, values[i]);
+        mn = MIN(mn, values[i]);
+    }
+    if (_axsScaleMode <= 0) {
+        if (mx <= 1.6f) {
+            _axsScaleMode = 1;   // 已经是 0..1 归一化值
+        } else if (mx <= self.axsMaxDb + 2.0f && mn >= self.axsMinDb - 8.0f) {
+            _axsScaleMode = 2;   // 老老实实按 range.txt
+        } else {
+            _axsScaleMode = 3;   // 未知标度，自适应
+        }
+        [ANVActions note:[NSString stringWithFormat:
+            @"axs scale=%d (min=%.2f max=%.2f range=%.1f..%.1f)",
+            _axsScaleMode, mn, mx, self.axsMinDb, self.axsMaxDb]];
+    }
+
+    if (_axsScaleMode == 3) {
+        // 自适应：峰值缓降，留 15% 底噪余量，音乐起伏就明显了
+        _axsPeak = MAX(_axsPeak * 0.985f, mx);
+        _axsPeak = MIN(MAX(_axsPeak, 16.0f), 120.0f);
+    }
+
+    static int traceTicks = 0;
     for (NSUInteger i = 0; i < kANVBandCount; i++) {
         float db = i < found ? values[i] : self.axsMinDb;
-        float target = fresh ? (db - self.axsMinDb) / range : 0.0f;
-        target = MIN(MAX(target, 0.0f), 1.0f);
+        float target;
+        if (_axsScaleMode == 1) {
+            target = db;
+        } else if (_axsScaleMode == 2) {
+            target = (db - self.axsMinDb) / range;
+        } else {
+            target = (db - _axsPeak * 0.15f) / (_axsPeak * 0.85f);
+        }
+        target = fresh ? MIN(MAX(target, 0.0f), 1.0f) : 0.0f;
 
         float old = _axsLevels[i];
         _axsLevels[i] = target > old ? target : old * 0.86f + target * 0.14f;
     }
+
+    if (++traceTicks % 40 == 0) {
+        [ANVActions note:[NSString stringWithFormat:
+            @"axs trace mode=%d peak=%.1f b0=%.2f b4=%.2f b9=%.2f fresh=%d",
+            _axsScaleMode, _axsPeak, _axsLevels[0], _axsLevels[4], _axsLevels[9], (int)fresh]];
+    }
+}
+
+#pragma mark - 模拟频谱（占位动画，不是真实电平）
+
+- (void)fillSimulatedLevels:(float *)levels count:(NSUInteger)count {
+    static float sim[10];
+    static NSTimeInterval lastSim = 0;
+    NSTimeInterval now = [NSDate date].timeIntervalSince1970;
+    CGFloat dt = lastSim > 0 ? (CGFloat)(now - lastSim) : 0.05;
+    lastSim = now;
+    dt = MIN(MAX(dt, 0.01), 0.20);
+    _simTime += dt;
+
+    for (NSUInteger i = 0; i < 10; i++) {
+        CGFloat t = _simTime;
+        // 低频高一点、高频低一点，再叠两个不同速率的正弦，看起来像鼓点和旋律
+        CGFloat base = 0.55 - (CGFloat)i * 0.035;
+        CGFloat w1 = 0.5 + 0.5 * sin(t * (1.7 + i * 0.13) + i * 0.9);
+        CGFloat w2 = 0.5 + 0.5 * sin(t * (0.6 + i * 0.05) + i * 1.7);
+        CGFloat target = base * (0.35 + 0.45 * w1 + 0.35 * w2);
+        target = MIN(MAX(target, 0.02), 1.0);
+        sim[i] = sim[i] * 0.85f + (float)target * 0.15f;
+        if (i < count) levels[i] = sim[i];
+    }
+    for (NSUInteger i = 10; i < count; i++) levels[i] = 0.0f;
 }
 
 #pragma mark - 对外
@@ -311,7 +529,6 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
 - (void)fillLevels:(float *)levels count:(NSUInteger)count {
     if (!levels) return;
     NSUInteger n = MIN(count, (NSUInteger)kANVBandCount);
-    BOOL playing = self.playing;
 
     // 优先用 AxsEQ 的真实电平（文件新鲜度已代表"正在播放"），没有它才退回麦克风 FFT
     if (self.axsAvailable) {
@@ -320,9 +537,20 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
         }
         return;
     }
-    for (NSUInteger i = 0; i < count; i++) {
-        levels[i] = (i < n && playing) ? self.levels[i] : 0.0f;
+    if (self.micAvailable && self.micEnabled) {
+        for (NSUInteger i = 0; i < count; i++) {
+            levels[i] = (i < n) ? _micLevels[i] : 0.0f;
+        }
+        return;
     }
+
+    // 数据源都不可用时的占位动画（明确不是真实电平）
+    if (self.simulateEnabled) {
+        [self fillSimulatedLevels:levels count:count];
+        return;
+    }
+
+    for (NSUInteger i = 0; i < count; i++) levels[i] = 0.0f;
 }
 
 @end
