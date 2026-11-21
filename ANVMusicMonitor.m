@@ -1,10 +1,11 @@
 #import "ANVMusicMonitor.h"
+#import "ANVActions.h"
 #import <AVFoundation/AVFoundation.h>
 #import <Accelerate/Accelerate.h>
 #import <dlfcn.h>
 #import <objc/runtime.h>
 
-#define kANVBandCount 12
+#define kANVBandCount 10
 #define kANVFFTSize 1024
 
 typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CFDictionaryRef info));
@@ -18,9 +19,18 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
 @property (nonatomic, assign) FFTSetup fftSetup;
 @property (nonatomic, assign) float *window;
 @property (nonatomic, assign) float *levels;
+
+// AxsEQ 真电平：/var/tmp/AxsEQ/levels.txt 由 mediaserverd 写入
+@property (nonatomic, strong) NSTimer *axsTimer;
+@property (nonatomic, assign) float axsMinDb;
+@property (nonatomic, assign) float axsMaxDb;
+@property (nonatomic, assign) BOOL axsAvailable;
+@property (nonatomic, assign) BOOL axsRangeLoaded;
 @end
 
-@implementation ANVMusicMonitor
+@implementation ANVMusicMonitor {
+    float _axsLevels[10];
+}
 
 + (instancetype)shared {
     static ANVMusicMonitor *instance;
@@ -34,6 +44,7 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
 
 - (void)start {
     if (self.pollTimer) return;
+    [self startAxsReader];
 
     self.pollTimer = [NSTimer scheduledTimerWithTimeInterval:0.8
                                                       target:self
@@ -233,9 +244,90 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
     }
 }
 
+#pragma mark - AxsEQ 真实电平
+
+- (void)loadAxsRange {
+    if (self.axsRangeLoaded) return;
+    self.axsMinDb = -42.0f;
+    self.axsMaxDb = 6.0f;
+    NSString *rangePath = @"/var/tmp/AxsEQ/range.txt";
+    NSString *text = [NSString stringWithContentsOfFile:rangePath
+                                               encoding:NSUTF8StringEncoding
+                                                  error:nil];
+    if (text.length) {
+        NSScanner *scanner = [NSScanner scannerWithString:text];
+        float lo = 0, hi = 0;
+        if ([scanner scanFloat:&lo] && [scanner scanFloat:&hi] && hi > lo) {
+            self.axsMinDb = lo;
+            self.axsMaxDb = hi;
+        }
+    }
+    self.axsRangeLoaded = YES;
+    [ANVActions note:[NSString stringWithFormat:@"axs range %.1f..%.1f dB",
+                      self.axsMinDb, self.axsMaxDb]];
+}
+
+- (void)startAxsReader {
+    if (self.axsTimer) return;
+    [self loadAxsRange];
+    self.axsTimer = [NSTimer timerWithTimeInterval:0.08 repeats:YES block:^(NSTimer *timer) {
+        [self pollAxsLevels];
+    }];
+    [[NSRunLoop mainRunLoop] addTimer:self.axsTimer forMode:NSRunLoopCommonModes];
+}
+
+- (void)pollAxsLevels {
+    NSString *path = @"/var/tmp/AxsEQ/levels.txt";
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSDictionary *attrs = [fm attributesOfItemAtPath:path error:nil];
+    if (!attrs) {
+        // 没装 AxsEQ 或者还没启动过，先安静地跳过
+        for (NSUInteger i = 0; i < kANVBandCount; i++) _axsLevels[i] *= 0.7f;
+        self.axsAvailable = NO;
+        return;
+    }
+
+    NSDate *modified = attrs[NSFileModificationDate];
+    double age = modified ? -[modified timeIntervalSinceNow] : 999.0;
+
+    NSString *text = [NSString stringWithContentsOfFile:path
+                                               encoding:NSUTF8StringEncoding
+                                                  error:nil];
+    if (!text.length) return;
+
+    NSArray<NSString *> *parts = [text componentsSeparatedByCharactersInSet:
+                                  [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    float values[10] = {0};
+    NSUInteger found = 0;
+    for (NSString *part in parts) {
+        if (!part.length) continue;
+        if ([part.uppercaseString isEqualToString:@"AXS"]) continue;
+        double v = part.doubleValue;
+        if (found < 10) values[found++] = (float)v;
+        if (found >= 10) break;
+    }
+    if (found < 4) return;
+    self.axsAvailable = YES;
+
+    // 超过 0.6 秒没更新（暂停/停止播放）就当静音，柱子立刻落下去
+    BOOL fresh = (age < 0.6);
+    float range = MAX(1.0f, self.axsMaxDb - self.axsMinDb);
+
+    for (NSUInteger i = 0; i < kANVBandCount; i++) {
+        float db = i < found ? values[i] : self.axsMinDb;
+        float target = fresh ? (db - self.axsMinDb) / range : 0.0f;
+        target = MIN(MAX(target, 0.0f), 1.0f);
+
+        float old = _axsLevels[i];
+        _axsLevels[i] = target > old ? target : old * 0.86f + target * 0.14f;
+    }
+}
+
 #pragma mark - 对外
 
 - (void)stop {
+    [self.axsTimer invalidate];
+    self.axsTimer = nil;
     [self.pollTimer invalidate];
     self.pollTimer = nil;
     [self stopMicrophone];
@@ -246,6 +338,14 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
     if (!levels) return;
     NSUInteger n = MIN(count, (NSUInteger)kANVBandCount);
     BOOL playing = self.playing;
+
+    // 优先用 AxsEQ 的真实电平（文件新鲜度已代表"正在播放"），没有它才退回麦克风 FFT
+    if (self.axsAvailable) {
+        for (NSUInteger i = 0; i < count; i++) {
+            levels[i] = (i < kANVBandCount) ? _axsLevels[i] : 0.0f;
+        }
+        return;
+    }
     for (NSUInteger i = 0; i < count; i++) {
         levels[i] = (i < n && playing) ? self.levels[i] : 0.0f;
     }

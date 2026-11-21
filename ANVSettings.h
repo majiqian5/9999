@@ -24,6 +24,8 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 @property (nonatomic, readonly) BOOL transparentBackground;
 @property (nonatomic, readonly) BOOL spectrumEnabled;
 @property (nonatomic, readonly) CGFloat spectrumSensitivity; // 0.5 ~ 2.0
+@property (nonatomic, readonly) NSInteger spectrumStyle;  // 0 柱状 1 点阵 2 镜像 3 折线
+@property (nonatomic, readonly) BOOL positionLocked;      // 锁住后拖不动
 
 - (void)reload;
 - (void)saveCenter:(CGPoint)normalizedPoint;
@@ -31,5 +33,7 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 
 - (void)saveScalePercent:(CGFloat)percent;          // 70 ~ 150
 - (void)saveSpectrumEnabled:(BOOL)enabled;
+- (void)saveSpectrumStyle:(NSInteger)style;
+- (void)savePositionLocked:(BOOL)locked;
 - (void)saveAction:(ANVKeyAction)action forSlot:(NSInteger)slot;
 @end

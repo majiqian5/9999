@@ -119,6 +119,34 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     }
 }
 
+- (NSString *)spectrumStyleTitle {
+    switch ([ANVSettings shared].spectrumStyle) {
+        case 1: return @"点阵";
+        case 2: return @"镜像";
+        case 3: return @"折线";
+        default: return @"柱状";
+    }
+}
+
+- (void)directionTapped:(UIButton *)sender {
+    CGFloat dx = 0, dy = 0;
+    switch (sender.tag) {
+        case 100: dy = -0.01; break;
+        case 101: dy = 0.01; break;
+        case 102: dx = -0.01; break;
+        default: dx = 0.01; break;
+    }
+    ANVSettings *settings = [ANVSettings shared];
+    [settings saveCenter:CGPointMake(settings.centerX + dx, settings.centerY + dy)];
+    [self updateFrame];
+
+    if (settings.haptics) {
+        UIImpactFeedbackGenerator *generator =
+            [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+        [generator impactOccurred];
+    }
+}
+
 - (void)showPanel {
     if (self.panelView) { [self hidePanel]; return; }
 
@@ -132,11 +160,15 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"大小 %ld%% · 调大", (long)lround([ANVSettings shared].scale * 100)],
         [NSString stringWithFormat:@"大小 %ld%% · 调小", (long)lround([ANVSettings shared].scale * 100)],
         [NSString stringWithFormat:@"频谱 · %@", [ANVSettings shared].spectrumEnabled ? @"开" : @"关"],
+        [NSString stringWithFormat:@"样式 · %@", [self spectrumStyleTitle]],
+        [NSString stringWithFormat:@"位置 · %@", [ANVSettings shared].positionLocked ? @"已锁定" : @"可拖动"],
         @"位置复位",
         @"关闭",
     ];
 
-    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, rowH * titles.count + 8)];
+    CGFloat dirRowH = 46.0;
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width,
+                                                             rowH * titles.count + dirRowH + 10)];
     panel.backgroundColor = [UIColor colorWithWhite:0.06 alpha:0.94];
     panel.layer.cornerRadius = 14.0;
     panel.layer.borderWidth = 1.0;
@@ -159,6 +191,31 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             [panel addSubview:line];
         }
     }
+
+    // 上下左右微调行（每个方向按一次移动 1% 屏幕）
+    UIView *dirRow = [[UIView alloc] initWithFrame:CGRectMake(0, 4 + rowH * titles.count,
+                                                             width, dirRowH)];
+    NSArray *dirTitles = @[@"↑", @"↓", @"←", @"→"];
+    NSArray *dirTags = @[@100, @101, @102, @103];
+    CGFloat dirW = 40.0;
+    CGFloat dirGap = 8.0;
+    CGFloat dirTotal = dirW * 4 + dirGap * 3;
+    CGFloat dirX = (width - dirTotal) / 2.0;
+    for (NSUInteger i = 0; i < 4; i++) {
+        UIButton *dir = [UIButton buttonWithType:UIButtonTypeCustom];
+        dir.frame = CGRectMake(dirX + i * (dirW + dirGap), 4, dirW, 36);
+        dir.tag = [dirTitles[i] isEqualToString:@"↑"] ? 100 : (NSInteger)[dirTags[i] integerValue];
+        dir.layer.cornerRadius = 8.0;
+        dir.layer.borderWidth = 1.0;
+        dir.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.18].CGColor;
+        dir.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.08];
+        dir.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+        [dir setTitle:dirTitles[i] forState:UIControlStateNormal];
+        [dir setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        [dir addTarget:self action:@selector(directionTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [dirRow addSubview:dir];
+    }
+    [panel addSubview:dirRow];
 
     self.panelView = panel;
     // 面板放到全屏容器上，否则超出 bar 边界就收不到点击
@@ -200,6 +257,19 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     switch (index) {
         case 4: [settings saveScalePercent:lround(settings.scale * 100) + 10]; [self rebuildBar]; break;
         case 5: [settings saveScalePercent:lround(settings.scale * 100) - 10]; [self rebuildBar]; break;
+        case 7: {
+            [settings saveSpectrumStyle:(settings.spectrumStyle + 1) % 4];
+            self.spectrumView.style = (ANVSpectrumStyle)settings.spectrumStyle;
+            [self hidePanel];
+            [self showPanel];
+            break;
+        }
+        case 8: {
+            [settings savePositionLocked:!settings.positionLocked];
+            [self hidePanel];
+            [self showPanel];
+            break;
+        }
         case 6: {
             BOOL on = !settings.spectrumEnabled;
             [settings saveSpectrumEnabled:on];
@@ -218,7 +288,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             [self rebuildBar];
             break;
         }
-        case 7:
+        case 9:
             [settings saveCenter:CGPointMake(0.5, 0.86)];
             [self updateFrame];
             break;
@@ -310,6 +380,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     if (settings.spectrumEnabled) {
         CGRect spectrumFrame = CGRectInset(self.barView.bounds, padH + 6, padV + 6);
         self.spectrumView = [[ANVSpectrumView alloc] initWithFrame:spectrumFrame];
+        self.spectrumView.style = (ANVSpectrumStyle)settings.spectrumStyle;
         self.spectrumView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [self.barView addSubview:self.spectrumView];
     }
@@ -392,14 +463,14 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 - (void)tick:(CADisplayLink *)link {
     if (!self.spectrumView) return;
 
-    float levels[12] = {0};
-    [[ANVMusicMonitor shared] fillLevels:levels count:12];
+    float levels[10] = {0};
+    [[ANVMusicMonitor shared] fillLevels:levels count:10];
 
     CGFloat sensitivity = [ANVSettings shared].spectrumSensitivity;
-    for (NSUInteger i = 0; i < 12; i++) {
+    for (NSUInteger i = 0; i < 10; i++) {
         levels[i] = MIN(1.0f, levels[i] * sensitivity);
     }
-    [self.spectrumView updateLevels:levels count:12];
+    [self.spectrumView updateLevels:levels count:10];
 }
 
 #pragma mark - 布局
@@ -442,6 +513,8 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
 
 - (void)handlePan:(UIPanGestureRecognizer *)pan {
     // 双指拖动，避免在列表里滑动时误把导航条拖走
+    if ([ANVSettings shared].positionLocked) return;
+
     switch (pan.state) {
         case UIGestureRecognizerStateBegan:
             self.dragging = YES;

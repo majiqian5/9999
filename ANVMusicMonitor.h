@@ -17,6 +17,9 @@
 @property (nonatomic, readonly, getter=isPlaying) BOOL playing;
 @property (nonatomic, readonly) BOOL micAvailable;
 
-/// 取出 0~1 的频段能量，count 最多 12
+/// 取出 0~1 的频段能量，count 最多 10
 - (void)fillLevels:(float *)levels count:(NSUInteger)count;
+
+/// AxsEQ 的真实电平（mediaserverd 的 PCM 峰值）：是否已经读到数据
+@property (nonatomic, readonly) BOOL axsAvailable;
 @end

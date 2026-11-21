@@ -36,6 +36,8 @@ static void ANVSetPref(NSString *key, id value) {
 @property (nonatomic, assign) BOOL spectrumEnabled;
 @property (nonatomic, assign) CGFloat spectrumSensitivity;
 @property (nonatomic, strong) NSArray<NSNumber *> *slotActions;
+@property (nonatomic, assign) NSInteger spectrumStyle;
+@property (nonatomic, assign) BOOL positionLocked;
 @end
 
 @implementation ANVSettings
@@ -97,6 +99,14 @@ static void ANVSetPref(NSString *key, id value) {
     if (sens > 3.0) sens /= 100.0;
     self.spectrumSensitivity = MAX(0.4, MIN(2.0, sens));
 
+    id style = ANVCopyPref(@"SpectrumStyle");
+    NSInteger st = style ? [style integerValue] : 0;
+    if (st < 0 || st > 3) st = 0;
+    self.spectrumStyle = st;
+
+    id locked = ANVCopyPref(@"PositionLocked");
+    self.positionLocked = locked ? [locked boolValue] : NO;
+
     NSInteger defaults[4] = {ANVKeyActionBack, ANVKeyActionHome, ANVKeyActionRecents, ANVKeyActionForward};
     NSMutableArray *actions = [NSMutableArray arrayWithCapacity:4];
     for (NSInteger slot = 0; slot < 4; slot++) {
@@ -113,6 +123,17 @@ static void ANVSetPref(NSString *key, id value) {
     CGFloat clamped = MAX(70.0, MIN(150.0, percent));
     ANVSetPref(@"Scale", @(clamped));
     self.scale = clamped / 100.0;
+}
+
+- (void)saveSpectrumStyle:(NSInteger)style {
+    NSInteger clamped = MAX(0, MIN(3, style));
+    ANVSetPref(@"SpectrumStyle", @(clamped));
+    self.spectrumStyle = clamped;
+}
+
+- (void)savePositionLocked:(BOOL)locked {
+    ANVSetPref(@"PositionLocked", @(locked));
+    self.positionLocked = locked;
 }
 
 - (void)saveSpectrumEnabled:(BOOL)enabled {
