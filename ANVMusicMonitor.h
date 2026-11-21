@@ -22,4 +22,7 @@
 
 /// AxsEQ 的真实电平（mediaserverd 的 PCM 峰值）：是否已经读到数据
 @property (nonatomic, readonly) BOOL axsAvailable;
+/// 麦克风频谱开关（AxsEQ 输出 nan 时的备用数据源）
+@property (nonatomic, assign) BOOL micEnabled;
+@property (nonatomic, assign) BOOL simulateEnabled;
 @end
