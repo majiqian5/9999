@@ -133,18 +133,44 @@ static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
 
 + (BOOL)openBundleID:(NSString *)bundleID {
     if (!bundleID.length) return NO;
+
+    // 防重叠：上一次还没落地时直接忽略，避免连点把 SpringBoard 卡住
+    static BOOL opening = NO;
+    static NSTimeInterval lastAttempt = 0;
+    NSTimeInterval now = [NSDate date].timeIntervalSince1970;
+    if (opening || now - lastAttempt < 0.8) {
+        ANVLog(@"open %@ skipped (busy)", bundleID);
+        return NO;
+    }
+    opening = YES;
+    lastAttempt = now;
+
     @try {
         Class workspaceClass = objc_getClass("LSApplicationWorkspace");
-        if (!workspaceClass) return NO;
+        if (!workspaceClass) { opening = NO; return NO; }
         id workspace = [workspaceClass performSelector:@selector(defaultWorkspace)];
         SEL sel = @selector(openApplicationWithBundleID:);
-        if (![workspace respondsToSelector:sel]) return NO;
+        if (![workspace respondsToSelector:sel]) { opening = NO; return NO; }
         BOOL (*openFn)(id, SEL, NSString *) = (BOOL (*)(id, SEL, NSString *))objc_msgSend;
-        BOOL ok = openFn(workspace, sel, bundleID);
-        if (ok) [[ANVHistory shared] noteProgrammaticOpen:bundleID];
-        ANVLog(@"open %@ -> %d", bundleID, ok);
-        return ok;
+
+        // 放开主线程调用，弹簧板激活本身是异步的
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            BOOL ok = NO;
+            @try {
+                ok = openFn(workspace, sel, bundleID);
+            } @catch (NSException *e) {
+                ANVLog(@"open exception: %@", e.reason);
+            }
+            ANVLog(@"open %@ -> %d", bundleID, ok);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                opening = NO;
+                [[ANVHistory shared] noteOpenResult:bundleID success:ok];
+            });
+        });
+        return YES;
     } @catch (NSException *e) {
+        opening = NO;
         ANVLog(@"open exception: %@", e);
         return NO;
     }
@@ -467,13 +493,29 @@ static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
     return [[ANVHistory shared] currentBundleID];
 }
 
+#pragma mark - 取目标（跳过等于当前前台的项）
+
++ (NSString *)popUsefulTargetBack:(BOOL)back {
+    NSString *front = [[ANVHistory shared] frontmostBundleID];
+    for (int i = 0; i < 4; i++) {
+        NSString *target = back ? [[ANVHistory shared] moveBack] : [[ANVHistory shared] moveForward];
+        if (!target.length) return nil;
+        if (front.length && [target isEqualToString:front]) {
+            ANVLog(@"skip target == front %@", target);
+            continue;
+        }
+        return target;
+    }
+    return nil;
+}
+
 #pragma mark - 总入口
 
 + (BOOL)performGlyph:(ANVGlyphKind)kind {
     BOOL result = NO;
     switch (kind) {
         case ANVGlyphBack: {
-            NSString *target = [[ANVHistory shared] moveBack];
+            NSString *target = [self popUsefulTargetBack:YES];
             ANVLog(@"back target=%@", target);
             result = target.length ? [self openBundleID:target] : NO;
             break;
@@ -485,7 +527,7 @@ static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
             result = [self toggleAppSwitcher];
             break;
         case ANVGlyphForward: {
-            NSString *target = [[ANVHistory shared] moveForward];
+            NSString *target = [self popUsefulTargetBack:NO];
             ANVLog(@"forward target=%@", target);
             result = target.length ? [self openBundleID:target] : NO;
             break;

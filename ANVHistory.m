@@ -136,6 +136,10 @@ static void ANVSetFrontmostHook(id self, SEL _cmd, BOOL frontmost) {
     [[NSRunLoop mainRunLoop] addTimer:self.trackTimer forMode:NSRunLoopCommonModes];
 }
 
+- (void)invalidateCurrent {
+    self.current = nil;
+}
+
 - (NSString *)currentBundleIDForLog {
     return [self frontmostBundleID];
 }
@@ -202,6 +206,16 @@ static void ANVSetFrontmostHook(id self, SEL _cmd, BOOL frontmost) {
     if (self.current.length) [self.backStack addObject:self.current];
     self.current = target;
     return target;
+}
+
+- (void)noteOpenResult:(NSString *)bundleID success:(BOOL)ok {
+    if (ok) {
+        [self noteProgrammaticOpen:bundleID];
+    } else {
+        // 打开失败：撤掉这一次的栈操作痕迹，别让它污染历史
+        self.current = nil;
+        [self suppressRecordingFor:0.6];
+    }
 }
 
 - (void)noteProgrammaticOpen:(NSString *)bundleID {

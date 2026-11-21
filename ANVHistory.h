@@ -15,6 +15,9 @@
 /// 0.4 秒轮询 SpringBoard 的 _switcherController 拿当前 App，自己记历史
 - (void)startTracking;
 - (NSString *)frontmostBundleID;
+
+/// 打开失败时清掉“当前 App”标记，避免栈错乱
+- (void)invalidateCurrent;
 - (void)suppressRecordingFor:(NSTimeInterval)seconds;
 
 - (NSString *)currentBundleID;
@@ -25,4 +28,5 @@
 - (NSString *)moveBack;
 - (NSString *)moveForward;
 - (void)noteProgrammaticOpen:(NSString *)bundleID;
+- (void)noteOpenResult:(NSString *)bundleID success:(BOOL)ok;
 @end
