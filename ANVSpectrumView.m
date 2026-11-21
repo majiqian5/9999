@@ -151,8 +151,9 @@
     for (NSInteger i = 0; i < kANVSpectrumBars; i++) {
         CGFloat distance = fabs((CGFloat)i - headIndex);
         CGFloat glow = MAX(0.0, 1.0 - distance / 2.4);       // 灯头附近最亮
-        CGFloat level = MAX(_levels[i], 0.06f);
-        CGFloat height = MAX(3.0, CGRectGetHeight(rect) * level * (0.35 + 0.65 * glow));
+        CGFloat level = MAX(_levels[i], 0.10f);
+        CGFloat animated = 0.30 + 0.70 * glow;               // 只有跑马灯在动
+        CGFloat height = MAX(6.0, CGRectGetHeight(rect) * level * animated);
         CGFloat x = startX + i * (barWidth + gap);
         CGRect barRect = CGRectMake(x, CGRectGetMaxY(rect) - height, barWidth, height);
 
@@ -178,8 +179,8 @@
         CGFloat distance = fabs((CGFloat)i - cycle);
         distance = MIN(distance, (CGFloat)kANVSpectrumBars - distance);
         CGFloat glow = MAX(0.0, 1.0 - distance / 3.0);
-        CGFloat level = MAX(_levels[i], 0.05f);
-        CGFloat height = MAX(3.0, CGRectGetHeight(rect) * level * 0.9);
+        CGFloat level = MAX(_levels[i], 0.10f);
+        CGFloat height = MAX(6.0, CGRectGetHeight(rect) * level * (0.4 + 0.6 * glow));
         CGFloat x = startX + i * (barWidth + gap);
         CGRect barRect = CGRectMake(x, CGRectGetMaxY(rect) - height, barWidth, height);
 
@@ -199,8 +200,8 @@
 
     for (NSInteger i = 0; i < kANVSpectrumBars; i++) {
         CGFloat wave = 0.5 + 0.5 * sin(_phase * 2.2 + (CGFloat)i * 0.75);
-        CGFloat level = MAX(_levels[i], 0.05f);
-        CGFloat height = MAX(3.0, CGRectGetHeight(rect) * level * (0.35 + 0.65 * wave));
+        CGFloat level = MAX(_levels[i], 0.10f);
+        CGFloat height = MAX(6.0, CGRectGetHeight(rect) * level * (0.30 + 0.70 * wave));
         CGFloat x = startX + i * (barWidth + gap);
         CGRect barRect = CGRectMake(x, CGRectGetMaxY(rect) - height, barWidth, height);
 

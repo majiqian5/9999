@@ -596,6 +596,14 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     CFTimeInterval now = CACurrentMediaTime();
     CGFloat delta = lastStamp > 0 ? (CGFloat)(now - lastStamp) : 1.0 / 30.0;
     lastStamp = now;
+    static CFTimeInterval lastDeadLog = 0;
+    if (![ANVMusicMonitor shared].axsAvailable) {
+        CFTimeInterval nowT = CACurrentMediaTime();
+        if (nowT - lastDeadLog > 6.0) {
+            lastDeadLog = nowT;
+            [ANVActions note:@"spectrum: AxsEQ 无数据，只有自带动画在动"];
+        }
+    }
     [self.spectrumView advancePhase:delta];
     [self.spectrumView updateLevels:levels count:10];
 }
@@ -661,10 +669,18 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
             CGRect screen = [UIScreen mainScreen].bounds;
             CGPoint center = self.barView.center;
 
-            // 往下拖超过屏幕底边一大截 = 收进底部，留一个小拉手
+            // 只有拖到屏幕外一大截才收起；落在底边附近则直接吸附贴边
             CGFloat halfH2 = self.barView.bounds.size.height / 2.0;
-            if (center.y > screen.size.height - halfH2 * 0.45) {
+            CGFloat bottomY = screen.size.height - halfH2;
+            if (center.y > bottomY + halfH2 * 0.6) {
                 [self dockHide];
+                break;
+            }
+            if (center.y > bottomY - 34.0) {
+                self.barView.center = CGPointMake(center.x, bottomY);   // 无空隙贴边
+                [[ANVSettings shared] saveCenter:CGPointMake(center.x / screen.size.width,
+                                                             bottomY / screen.size.height)];
+                [self updateFrame];
                 break;
             }
             if (screen.size.width > 0 && screen.size.height > 0) {
