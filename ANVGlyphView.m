@@ -1,12 +1,14 @@
 #import "ANVGlyphView.h"
 
-@interface ANVGlyphView ()
-@property (nonatomic, strong) CAShapeLayer *shapeLayer;
-@property (nonatomic, strong) UIImageView *imageView;
-@property (nonatomic, assign) CGFloat baseLineWidth;
-@end
-
-@implementation ANVGlyphView
+/**
+ * 四个图标全部用 CGContext 直接画（不用 CAShapeLayer）。
+ * 之前用 CAShapeLayer 的版本在部分环境下路径不刷新，导致图标空白；
+ * 改成 drawRect 后，只要视图被布局就一定画得出来。
+ */
+@implementation ANVGlyphView {
+    BOOL _highlighted;
+    UIImage *_image;
+}
 
 - (instancetype)initWithFrame:(CGRect)frame {
     self = [super initWithFrame:frame];
@@ -14,68 +16,67 @@
         self.backgroundColor = [UIColor clearColor];
         self.opaque = NO;
         self.userInteractionEnabled = NO;
-        _baseLineWidth = 3.2;
+        self.contentMode = UIViewContentModeRedraw;
+        self.clipsToBounds = NO;
         _lineWidth = 3.2;
-
-        _imageView = [[UIImageView alloc] initWithFrame:CGRectZero];
-        _imageView.contentMode = UIViewContentModeScaleAspectFit;
-        _imageView.userInteractionEnabled = NO;
-        _imageView.hidden = YES;
-        [self addSubview:_imageView];
-
-        _shapeLayer = [CAShapeLayer layer];
-        _shapeLayer.fillColor = [UIColor clearColor].CGColor;
-        _shapeLayer.lineJoin = kCALineJoinRound;
-        _shapeLayer.lineCap = kCALineCapRound;
-        _shapeLayer.strokeColor = [UIColor whiteColor].CGColor;
-        _shapeLayer.lineWidth = _lineWidth;
-        _shapeLayer.shadowOffset = CGSizeZero;
-        _shapeLayer.shadowOpacity = 0.95;
-        _shapeLayer.shadowRadius = 7.0;
-        _shapeLayer.masksToBounds = NO;
-        [self.layer addSublayer:_shapeLayer];
+        _glyphColor = [UIColor whiteColor];
     }
     return self;
 }
 
+#pragma mark - 属性
+
 - (void)setKind:(ANVGlyphKind)kind {
     _kind = kind;
-    [self setNeedsLayout];
+    [self setNeedsDisplay];
 }
 
 - (void)setGlyphColor:(UIColor *)glyphColor {
-    _glyphColor = glyphColor;
-    _shapeLayer.strokeColor = glyphColor.CGColor;
-    _shapeLayer.shadowColor = glyphColor.CGColor;
+    _glyphColor = glyphColor ?: [UIColor whiteColor];
+    [self setNeedsDisplay];
 }
 
 - (void)setLineWidth:(CGFloat)lineWidth {
-    _lineWidth = lineWidth;
-    _baseLineWidth = lineWidth;
-    _shapeLayer.lineWidth = lineWidth;
+    _lineWidth = MAX(1.0, lineWidth);
+    [self setNeedsDisplay];
 }
 
 - (void)setGlowHighlighted:(BOOL)highlighted {
-    _shapeLayer.lineWidth = highlighted ? _baseLineWidth * 1.35 : _baseLineWidth;
-    _shapeLayer.shadowRadius = highlighted ? 12.0 : 7.0;
-    _shapeLayer.shadowOpacity = highlighted ? 1.0 : 0.95;
+    _highlighted = highlighted;
+    [self setNeedsDisplay];
 }
 
+- (void)setGlyphImage:(UIImage *)image {
+    _image = image;
+    [self setNeedsDisplay];
+}
+
+- (void)setFrame:(CGRect)frame {
+    [super setFrame:frame];
+    [self setNeedsDisplay];
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    [self setNeedsDisplay];
+}
+
+#pragma mark - 路径
+
 - (UIBezierPath *)pathForKind:(ANVGlyphKind)kind inRect:(CGRect)r {
-    // 统一成同一视觉外接框：四种图标占同样的大小，看起来才像一套
-    CGFloat side = MIN(r.size.width, r.size.height) * 0.62;
+    CGFloat side = MIN(r.size.width, r.size.height) * 0.74;
     CGRect box = CGRectMake(CGRectGetMidX(r) - side / 2.0,
                             CGRectGetMidY(r) - side / 2.0,
                             side, side);
     CGFloat w = box.size.width, h = box.size.height;
-    r = box;
+    CGFloat minX = CGRectGetMinX(box), minY = CGRectGetMinY(box);
     UIBezierPath *p = [UIBezierPath bezierPath];
 
     switch (kind) {
         case ANVGlyphBack: {
-            CGPoint a = CGPointMake(CGRectGetMinX(r) + w * 0.97, CGRectGetMinY(r) + h * 0.02);
-            CGPoint b = CGPointMake(CGRectGetMinX(r) + w * 0.03, CGRectGetMidY(r));
-            CGPoint c = CGPointMake(CGRectGetMinX(r) + w * 0.97, CGRectGetMinY(r) + h * 0.98);
+            CGPoint a = CGPointMake(minX + w * 0.96, minY + h * 0.04);
+            CGPoint b = CGPointMake(minX + w * 0.04, minY + h * 0.50);
+            CGPoint c = CGPointMake(minX + w * 0.96, minY + h * 0.96);
             [p moveToPoint:a];
             [p addLineToPoint:b];
             [p addLineToPoint:c];
@@ -83,57 +84,71 @@
             break;
         }
         case ANVGlyphHome: {
-            [p addArcWithCenter:CGPointMake(CGRectGetMidX(r), CGRectGetMidY(r))
-                          radius:w * 0.5
+            [p addArcWithCenter:CGPointMake(CGRectGetMidX(box), CGRectGetMidY(box))
+                          radius:side / 2.0 * 0.96
                       startAngle:0
                         endAngle:M_PI * 2
                        clockwise:YES];
             break;
         }
         case ANVGlyphRecents: {
-            CGRect sq = r;
-            UIBezierPath *rounded = [UIBezierPath bezierPathWithRoundedRect:sq cornerRadius:w * 0.12];
-            [p appendPath:rounded];
+            UIBezierPath *sq = [UIBezierPath bezierPathWithRoundedRect:box cornerRadius:side * 0.10];
+            [p appendPath:sq];
             break;
         }
         case ANVGlyphForward: {
-            CGFloat y = CGRectGetMidY(r);
-            // 横线
-            [p moveToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.02, y)];
-            [p addLineToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.72, y)];
-            // 箭头
-            [p moveToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.58, y - h * 0.24)];
-            [p addLineToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.88, y)];
-            [p addLineToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.58, y + h * 0.24)];
-            // 箭头后的竖线（跟参考图一致）
-            [p moveToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.93, y - h * 0.34)];
-            [p addLineToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.93, y + h * 0.34)];
+            CGFloat y = CGRectGetMidY(box);
+            [p moveToPoint:CGPointMake(minX + w * 0.03, y)];
+            [p addLineToPoint:CGPointMake(minX + w * 0.62, y)];
+            [p moveToPoint:CGPointMake(minX + w * 0.50, y - h * 0.22)];
+            [p addLineToPoint:CGPointMake(minX + w * 0.80, y)];
+            [p addLineToPoint:CGPointMake(minX + w * 0.50, y + h * 0.22)];
+            [p moveToPoint:CGPointMake(minX + w * 0.92, y - h * 0.36)];
+            [p addLineToPoint:CGPointMake(minX + w * 0.92, y + h * 0.36)];
             break;
         }
     }
     return p;
 }
 
-- (void)setGlyphImage:(UIImage *)image {
-    self.imageView.image = image;
-    self.imageView.hidden = (image == nil);
-    self.shapeLayer.hidden = (image != nil);
-    if (image) {
-        self.imageView.layer.shadowColor = self.glyphColor.CGColor;
-        self.imageView.layer.shadowOffset = CGSizeZero;
-        self.imageView.layer.shadowRadius = 7.0;
-        self.imageView.layer.shadowOpacity = 0.9;
+#pragma mark - 绘制
+
+- (void)drawRect:(CGRect)rect {
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    if (!ctx) return;
+
+    UIColor *color = self.glyphColor ?: [UIColor whiteColor];
+    CGFloat lw = _highlighted ? _lineWidth * 1.35 : _lineWidth;
+
+    CGContextSaveGState(ctx);
+    CGContextSetShadowWithColor(ctx, CGSizeZero,
+                                _highlighted ? 12.0 : 7.0,
+                                [color colorWithAlphaComponent:0.95].CGColor);
+
+    if (_image) {
+        CGFloat inset = MIN(rect.size.width, rect.size.height) * 0.06;
+        CGRect imageRect = CGRectInset(rect, inset, inset);
+        [_image drawInRect:imageRect blendMode:kCGBlendModeNormal alpha:1.0];
+        CGContextRestoreGState(ctx);
+        return;
     }
-    [self setNeedsLayout];
-}
 
-- (void)layoutSubviews {
-    [super layoutSubviews];
-    _shapeLayer.frame = self.bounds;
-    _shapeLayer.path = [self pathForKind:_kind inRect:self.bounds].CGPath;
+    UIBezierPath *path = [self pathForKind:_kind inRect:rect];
+    if (!path || path.isEmpty) { CGContextRestoreGState(ctx); return; }
 
-    CGFloat inset = 3.0;
-    _imageView.frame = CGRectInset(self.bounds, inset, inset);
+    path.lineWidth = lw;
+    path.lineJoinStyle = kCGLineJoinRound;
+    path.lineCapStyle = kCGLineCapRound;
+
+    if (_kind == ANVGlyphBack) {
+        // 三角是实心的，跟参考图一致
+        [color setFill];
+        [path fill];
+    }
+    [color setStroke];
+    [path stroke];
+
+    CGContextRestoreGState(ctx);
 }
 
 @end
