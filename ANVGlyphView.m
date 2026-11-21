@@ -62,14 +62,20 @@
 }
 
 - (UIBezierPath *)pathForKind:(ANVGlyphKind)kind inRect:(CGRect)r {
-    CGFloat w = r.size.width, h = r.size.height;
+    // 统一成同一视觉外接框：四种图标占同样的大小，看起来才像一套
+    CGFloat side = MIN(r.size.width, r.size.height) * 0.62;
+    CGRect box = CGRectMake(CGRectGetMidX(r) - side / 2.0,
+                            CGRectGetMidY(r) - side / 2.0,
+                            side, side);
+    CGFloat w = box.size.width, h = box.size.height;
+    r = box;
     UIBezierPath *p = [UIBezierPath bezierPath];
 
     switch (kind) {
         case ANVGlyphBack: {
-            CGPoint a = CGPointMake(CGRectGetMinX(r) + w * 0.74, CGRectGetMinY(r) + h * 0.14);
-            CGPoint b = CGPointMake(CGRectGetMinX(r) + w * 0.24, CGRectGetMidY(r));
-            CGPoint c = CGPointMake(CGRectGetMinX(r) + w * 0.74, CGRectGetMinY(r) + h * 0.86);
+            CGPoint a = CGPointMake(CGRectGetMinX(r) + w * 0.97, CGRectGetMinY(r) + h * 0.02);
+            CGPoint b = CGPointMake(CGRectGetMinX(r) + w * 0.03, CGRectGetMidY(r));
+            CGPoint c = CGPointMake(CGRectGetMinX(r) + w * 0.97, CGRectGetMinY(r) + h * 0.98);
             [p moveToPoint:a];
             [p addLineToPoint:b];
             [p addLineToPoint:c];
@@ -78,30 +84,30 @@
         }
         case ANVGlyphHome: {
             [p addArcWithCenter:CGPointMake(CGRectGetMidX(r), CGRectGetMidY(r))
-                          radius:w * 0.30
+                          radius:w * 0.5
                       startAngle:0
                         endAngle:M_PI * 2
                        clockwise:YES];
             break;
         }
         case ANVGlyphRecents: {
-            CGRect sq = CGRectInset(r, w * 0.24, h * 0.24);
-            UIBezierPath *rounded = [UIBezierPath bezierPathWithRoundedRect:sq cornerRadius:w * 0.05];
+            CGRect sq = r;
+            UIBezierPath *rounded = [UIBezierPath bezierPathWithRoundedRect:sq cornerRadius:w * 0.12];
             [p appendPath:rounded];
             break;
         }
         case ANVGlyphForward: {
             CGFloat y = CGRectGetMidY(r);
             // 横线
-            [p moveToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.16, y)];
-            [p addLineToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.76, y)];
+            [p moveToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.02, y)];
+            [p addLineToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.72, y)];
             // 箭头
-            [p moveToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.56, y - h * 0.19)];
-            [p addLineToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.78, y)];
-            [p addLineToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.56, y + h * 0.19)];
-            // 箭头前的竖线
-            [p moveToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.84, y - h * 0.27)];
-            [p addLineToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.84, y + h * 0.27)];
+            [p moveToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.58, y - h * 0.24)];
+            [p addLineToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.88, y)];
+            [p addLineToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.58, y + h * 0.24)];
+            // 箭头后的竖线（跟参考图一致）
+            [p moveToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.93, y - h * 0.34)];
+            [p addLineToPoint:CGPointMake(CGRectGetMinX(r) + w * 0.93, y + h * 0.34)];
             break;
         }
     }

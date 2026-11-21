@@ -48,6 +48,12 @@
     if (gap) *gap = gp;
 }
 
+- (void)advancePhase:(CGFloat)delta {
+    _phase += delta;
+    if (_phase > 1000.0) _phase = 0;
+    if (self.style >= ANVSpectrumStyleMarquee) [self setNeedsDisplay];
+}
+
 #pragma mark - 各种样式
 
 - (void)drawBarsInContext:(CGContextRef)ctx rect:(CGRect)rect mirrored:(BOOL)mirrored {
@@ -133,6 +139,80 @@
     CGPathRelease(path);
 }
 
+- (void)drawMarqueeInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGFloat startX = 0, barWidth = 0, gap = 0;
+    [self layoutForWidth:CGRectGetWidth(rect) start:&startX barWidth:&barWidth gap:&gap];
+
+    // 往返：period 2.6 秒走完一轮
+    CGFloat t = fmod(_phase / 2.6, 2.0);
+    CGFloat pos = t <= 1.0 ? t : 2.0 - t;                 // 0 -> 1 -> 0
+    CGFloat headIndex = pos * (CGFloat)(kANVSpectrumBars - 1);
+
+    for (NSInteger i = 0; i < kANVSpectrumBars; i++) {
+        CGFloat distance = fabs((CGFloat)i - headIndex);
+        CGFloat glow = MAX(0.0, 1.0 - distance / 2.4);       // 灯头附近最亮
+        CGFloat level = MAX(_levels[i], 0.06f);
+        CGFloat height = MAX(3.0, CGRectGetHeight(rect) * level * (0.35 + 0.65 * glow));
+        CGFloat x = startX + i * (barWidth + gap);
+        CGRect barRect = CGRectMake(x, CGRectGetMaxY(rect) - height, barWidth, height);
+
+        UIColor *color = [self colorForBar:i];
+        UIColor *fill = glow > 0.55
+            ? [UIColor colorWithWhite:1.0 alpha:0.55 + 0.45 * glow]
+            : [color colorWithAlphaComponent:0.30 + 0.7 * glow];
+        CGContextSetFillColorWithColor(ctx, fill.CGColor);
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 6.0 * glow, color.CGColor);
+        UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:barRect
+                                                            cornerRadius:barWidth / 2.0];
+        [path fill];
+    }
+}
+
+- (void)drawStreamInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGFloat startX = 0, barWidth = 0, gap = 0;
+    [self layoutForWidth:CGRectGetWidth(rect) start:&startX barWidth:&barWidth gap:&gap];
+
+    // 单向循环：1.8 秒一轮
+    CGFloat cycle = fmod(_phase / 1.8, 1.0) * (CGFloat)kANVSpectrumBars;
+    for (NSInteger i = 0; i < kANVSpectrumBars; i++) {
+        CGFloat distance = fabs((CGFloat)i - cycle);
+        distance = MIN(distance, (CGFloat)kANVSpectrumBars - distance);
+        CGFloat glow = MAX(0.0, 1.0 - distance / 3.0);
+        CGFloat level = MAX(_levels[i], 0.05f);
+        CGFloat height = MAX(3.0, CGRectGetHeight(rect) * level * 0.9);
+        CGFloat x = startX + i * (barWidth + gap);
+        CGRect barRect = CGRectMake(x, CGRectGetMaxY(rect) - height, barWidth, height);
+
+        UIColor *color = [self colorForBar:i];
+        UIColor *fill = [color colorWithAlphaComponent:0.25 + 0.75 * glow];
+        CGContextSetFillColorWithColor(ctx, fill.CGColor);
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 8.0 * glow, color.CGColor);
+        UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:barRect
+                                                            cornerRadius:barWidth / 2.0];
+        [path fill];
+    }
+}
+
+- (void)drawPulseInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGFloat startX = 0, barWidth = 0, gap = 0;
+    [self layoutForWidth:CGRectGetWidth(rect) start:&startX barWidth:&barWidth gap:&gap];
+
+    for (NSInteger i = 0; i < kANVSpectrumBars; i++) {
+        CGFloat wave = 0.5 + 0.5 * sin(_phase * 2.2 + (CGFloat)i * 0.75);
+        CGFloat level = MAX(_levels[i], 0.05f);
+        CGFloat height = MAX(3.0, CGRectGetHeight(rect) * level * (0.35 + 0.65 * wave));
+        CGFloat x = startX + i * (barWidth + gap);
+        CGRect barRect = CGRectMake(x, CGRectGetMaxY(rect) - height, barWidth, height);
+
+        UIColor *color = [self colorForBar:i];
+        CGContextSetFillColorWithColor(ctx, color.CGColor);
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 6.0, color.CGColor);
+        UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:barRect
+                                                            cornerRadius:barWidth / 2.0];
+        [path fill];
+    }
+}
+
 - (void)drawRect:(CGRect)rect {
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     if (!ctx) return;
@@ -146,6 +226,15 @@
             break;
         case ANVSpectrumStyleLine:
             [self drawLineInContext:ctx rect:rect];
+            break;
+        case ANVSpectrumStyleMarquee:
+            [self drawMarqueeInContext:ctx rect:rect];
+            break;
+        case ANVSpectrumStyleStream:
+            [self drawStreamInContext:ctx rect:rect];
+            break;
+        case ANVSpectrumStylePulse:
+            [self drawPulseInContext:ctx rect:rect];
             break;
         default:
             [self drawBarsInContext:ctx rect:rect mirrored:NO];

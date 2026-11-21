@@ -101,7 +101,7 @@ static void ANVSetPref(NSString *key, id value) {
 
     id style = ANVCopyPref(@"SpectrumStyle");
     NSInteger st = style ? [style integerValue] : 0;
-    if (st < 0 || st > 3) st = 0;
+    if (st < 0 || st > 6) st = 0;
     self.spectrumStyle = st;
 
     id locked = ANVCopyPref(@"PositionLocked");
@@ -126,9 +126,15 @@ static void ANVSetPref(NSString *key, id value) {
 }
 
 - (void)saveSpectrumStyle:(NSInteger)style {
-    NSInteger clamped = MAX(0, MIN(3, style));
+    NSInteger clamped = MAX(0, MIN(6, style));
     ANVSetPref(@"SpectrumStyle", @(clamped));
     self.spectrumStyle = clamped;
+}
+
+- (void)saveSpectrumSensitivity:(CGFloat)value {
+    CGFloat clamped = MAX(0.4, MIN(2.0, value));
+    ANVSetPref(@"SpectrumSensitivity", @(lround(clamped * 100.0)));
+    self.spectrumSensitivity = clamped;
 }
 
 - (void)savePositionLocked:(BOOL)locked {

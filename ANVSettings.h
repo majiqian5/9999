@@ -34,6 +34,7 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 - (void)saveScalePercent:(CGFloat)percent;          // 70 ~ 150
 - (void)saveSpectrumEnabled:(BOOL)enabled;
 - (void)saveSpectrumStyle:(NSInteger)style;
+- (void)saveSpectrumSensitivity:(CGFloat)value;
 - (void)savePositionLocked:(BOOL)locked;
 - (void)saveAction:(ANVKeyAction)action forSlot:(NSInteger)slot;
 @end

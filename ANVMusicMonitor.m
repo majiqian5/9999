@@ -110,52 +110,10 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
 #pragma mark - 麦克风 / FFT
 
 - (void)startMicrophone {
-    if (self.engine) return;
-
-    // SpringBoard 没有麦克风用途描述，未授权时直接调用会把它杀掉；先检查权限
-    AVAudioSessionRecordPermission permission = [AVAudioSession sharedInstance].recordPermission;
-    if (permission != AVAudioSessionRecordPermissionGranted) {
-        self.micAvailable = NO;
-        return;
-    }
-
-    @try {
-        NSError *error = nil;
-        AVAudioSession *session = [AVAudioSession sharedInstance];
-        [session setCategory:AVAudioSessionCategoryPlayAndRecord
-                  withOptions:AVAudioSessionCategoryOptionMixWithOthers |
-                              AVAudioSessionCategoryOptionAllowBluetooth
-                        error:&error];
-        [session setActive:YES error:&error];
-
-        AVAudioEngine *engine = [[AVAudioEngine alloc] init];
-        AVAudioInputNode *input = engine.inputNode;
-        AVAudioFormat *format = [input outputFormatForBus:0];
-
-        self.fftSetup = vDSP_create_fftsetup(log2f(kANVFFTSize), kFFTRadix2);
-        self.window = calloc(kANVFFTSize, sizeof(float));
-        vDSP_hann_window(self.window, kANVFFTSize, vDSP_HANN_NORM);
-
-        __weak typeof(self) weakSelf = self;
-        [input installTapOnBus:0 bufferSize:kANVFFTSize format:format
-                         block:^(AVAudioPCMBuffer *buffer, AVAudioTime *when) {
-            __strong typeof(weakSelf) strongSelf = weakSelf;
-            [strongSelf processBuffer:buffer];
-        }];
-        self.tapInstalled = YES;
-
-        [engine prepare];
-        if (![engine startAndReturnError:&error]) {
-            self.micAvailable = NO;
-            [self teardownEngine];
-            return;
-        }
-        self.engine = engine;
-        self.micAvailable = YES;
-    } @catch (NSException *e) {
-        self.micAvailable = NO;
-        [self teardownEngine];
-    }
+    // 曾经用 AVAudioEngine 采麦克风，但它会重新设定全局 AudioSession 类别
+    //（PlayAndRecord），直接把正在播放的音乐掐掉。现在频谱只走 AxsEQ 的真实电平，
+    // 完全不碰 AudioSession，播放音乐不会再被中断。
+    self.micAvailable = NO;
 }
 
 - (void)ensureMicrophoneRunning {

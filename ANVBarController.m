@@ -33,6 +33,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, assign) CGPoint dragStartCenter;
 @property (nonatomic, strong) NSTimer *lockTimer;
 @property (nonatomic, assign) BOOL hiddenByLock;
+@property (nonatomic, strong) UIView *pullTab;
+@property (nonatomic, assign) BOOL dockedHidden;
 @end
 
 // 空白处不接手势，让底下的图标照常能点
@@ -94,6 +96,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [self.displayLink addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
     }
 
+    [self buildPullTab];
     self.window.hidden = NO;
     [ANVActions note:@"window shown"];
 
@@ -143,9 +146,61 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     BOOL locked = [self isDeviceLocked];
     if (locked == self.barView.hidden) return;   // 状态没变
     self.barView.hidden = locked;
+    self.pullTab.hidden = (locked || !self.dockedHidden);
     self.hiddenByLock = locked;
     if (locked) [self hidePanel];
     [ANVActions note:[NSString stringWithFormat:@"lock hide -> %d", locked]];
+}
+
+- (void)buildPullTab {
+    CGFloat w = 64.0, h = 5.0;
+    CGRect screen = [UIScreen mainScreen].bounds;
+    UIView *tab = [[UIView alloc] initWithFrame:CGRectMake((screen.size.width - w) / 2.0,
+                                                          screen.size.height - h - 2.0, w, h)];
+    tab.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.28];
+    tab.layer.cornerRadius = h / 2.0;
+    tab.hidden = YES;
+    tab.userInteractionEnabled = YES;
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                         action:@selector(restoreFromDock)];
+    [tab addGestureRecognizer:tap];
+    [self.window.rootViewController.view addSubview:tab];
+    self.pullTab = tab;
+}
+
+- (void)dockHide {
+    if (self.dockedHidden) return;
+    self.dockedHidden = YES;
+    [self hidePanel];
+    CGRect screen = [UIScreen mainScreen].bounds;
+    [UIView animateWithDuration:0.22 animations:^{
+        self.barView.center = CGPointMake(self.barView.center.x,
+                                          screen.size.height + self.barView.bounds.size.height);
+        self.barView.alpha = 0.0;
+    } completion:^(BOOL finished) {
+        self.barView.hidden = YES;
+        self.pullTab.hidden = NO;
+    }];
+    [ANVActions note:@"dock hidden"];
+}
+
+- (void)restoreFromDock {
+    if (!self.dockedHidden) return;
+    self.dockedHidden = NO;
+    self.pullTab.hidden = YES;
+    self.barView.hidden = NO;
+    CGFloat screenH = [UIScreen mainScreen].bounds.size.height;
+    CGFloat halfH = self.barView.bounds.size.height / 2.0;
+    [UIView animateWithDuration:0.2 animations:^{
+        self.barView.center = CGPointMake(self.barView.center.x,
+                                          screenH - halfH);
+        self.barView.alpha = [ANVSettings shared].opacity;
+    } completion:^(BOOL finished) {
+        [[ANVSettings shared] saveCenter:CGPointMake(0.5,
+            (screenH - halfH) / MAX(1.0, screenH))];
+        [self updateFrame];
+    }];
+    [ANVActions note:@"dock restored"];
 }
 
 - (void)pollFrontmost {
@@ -170,6 +225,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 1: return @"点阵";
         case 2: return @"镜像";
         case 3: return @"折线";
+        case 4: return @"跑马灯";
+        case 5: return @"流水灯";
+        case 6: return @"呼吸波";
         default: return @"柱状";
     }
 }
@@ -207,6 +265,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"大小 %ld%% · 调小", (long)lround([ANVSettings shared].scale * 100)],
         [NSString stringWithFormat:@"频谱 · %@", [ANVSettings shared].spectrumEnabled ? @"开" : @"关"],
         [NSString stringWithFormat:@"样式 · %@", [self spectrumStyleTitle]],
+        [NSString stringWithFormat:@"灵敏度 %ld%% · 加", (long)lround([ANVSettings shared].spectrumSensitivity * 100)],
+        [NSString stringWithFormat:@"灵敏度 %ld%% · 减", (long)lround([ANVSettings shared].spectrumSensitivity * 100)],
         [NSString stringWithFormat:@"位置 · %@", [ANVSettings shared].positionLocked ? @"已锁定" : @"可拖动"],
         @"位置复位",
         @"关闭",
@@ -311,6 +371,18 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             break;
         }
         case 8: {
+            [settings saveSpectrumSensitivity:settings.spectrumSensitivity + 0.1];
+            [self hidePanel];
+            [self showPanel];
+            break;
+        }
+        case 9: {
+            [settings saveSpectrumSensitivity:settings.spectrumSensitivity - 0.1];
+            [self hidePanel];
+            [self showPanel];
+            break;
+        }
+        case 10: {
             [settings savePositionLocked:!settings.positionLocked];
             [self hidePanel];
             [self showPanel];
@@ -334,7 +406,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             [self rebuildBar];
             break;
         }
-        case 9:
+        case 11:
             [settings saveCenter:CGPointMake(0.5, 0.86)];
             [self updateFrame];
             break;
@@ -356,6 +428,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     self.displayLink = nil;
     [self.lockTimer invalidate];
     self.lockTimer = nil;
+    [self.pullTab removeFromSuperview];
+    self.pullTab = nil;
     self.window.hidden = YES;
     self.window = nil;
     self.barView = nil;
@@ -518,6 +592,11 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     for (NSUInteger i = 0; i < 10; i++) {
         levels[i] = MIN(1.0f, levels[i] * sensitivity);
     }
+    static CFTimeInterval lastStamp = 0;
+    CFTimeInterval now = CACurrentMediaTime();
+    CGFloat delta = lastStamp > 0 ? (CGFloat)(now - lastStamp) : 1.0 / 30.0;
+    lastStamp = now;
+    [self.spectrumView advancePhase:delta];
     [self.spectrumView updateLevels:levels count:10];
 }
 
@@ -581,6 +660,13 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
             self.dragging = NO;
             CGRect screen = [UIScreen mainScreen].bounds;
             CGPoint center = self.barView.center;
+
+            // 往下拖超过屏幕底边一大截 = 收进底部，留一个小拉手
+            CGFloat halfH2 = self.barView.bounds.size.height / 2.0;
+            if (center.y > screen.size.height - halfH2 * 0.45) {
+                [self dockHide];
+                break;
+            }
             if (screen.size.width > 0 && screen.size.height > 0) {
                 center.x = MIN(MAX(center.x, self.barView.bounds.size.width / 2.0),
                            screen.size.width - self.barView.bounds.size.width / 2.0);
