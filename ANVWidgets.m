@@ -32,6 +32,43 @@ static void ANVDrawRainbowText(NSString *text, CGRect rect, CGFloat fontSize,
     }
 }
 
+
+// 和导航键同一套质感：深色玻璃胶囊 + 顶部高光 + 霓虹描边
+static void ANVDrawGlassCapsule(CGContextRef ctx, CGRect rect, CGFloat hue, CGFloat radius) {
+    UIBezierPath *cap = [UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:radius];
+
+    // 外发光
+    CGContextSaveGState(ctx);
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 8.0,
+        [UIColor colorWithHue:hue saturation:1.0 brightness:1.0 alpha:0.55].CGColor);
+    [[UIColor colorWithWhite:0.02 alpha:0.80] setFill];
+    [cap fill];
+    CGContextRestoreGState(ctx);
+
+    // 玻璃渐变：上亮下暗
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    NSArray *colors = @[(id)[UIColor colorWithWhite:0.30 alpha:0.70].CGColor,
+                        (id)[UIColor colorWithWhite:0.06 alpha:0.85].CGColor,
+                        (id)[UIColor colorWithWhite:0.00 alpha:0.90].CGColor];
+    CGGradientRef grad = CGGradientCreateWithColors(space, (__bridge CFArrayRef)colors, NULL);
+    CGContextSaveGState(ctx);
+    CGContextAddPath(ctx, cap.CGPath);
+    CGContextClip(ctx);
+    CGContextDrawLinearGradient(ctx, grad, CGPointMake(CGRectGetMidX(rect), CGRectGetMinY(rect)),
+                                CGPointMake(CGRectGetMidX(rect), CGRectGetMaxY(rect)), 0);
+    CGContextRestoreGState(ctx);
+    CGGradientRelease(grad);
+    CGColorSpaceRelease(space);
+
+    // 霓虹边
+    [[UIColor colorWithHue:hue saturation:1.0 brightness:1.0 alpha:0.85] setStroke];
+    cap.lineWidth = 1.4;
+    [cap stroke];
+    [[UIColor colorWithWhite:1.0 alpha:0.35] setStroke];
+    cap.lineWidth = 0.7;
+    [cap stroke];
+}
+
 #pragma mark - 宠物（会举牌、会撒娇的小动物）
 
 static UIColor *ANVPetSkin(NSInteger style) {
@@ -316,26 +353,26 @@ static void ANVStarPath(CGContextRef ctx, CGPoint c, CGFloat s, UIColor *color) 
 }
 
 - (void)drawSignInContext:(CGContextRef)ctx rect:(CGRect)rect {
-    // 参考 CC 播放器：一块圆角气泡牌，左下有个指向宠物的小尾巴
+    // 和导航键一样：深色玻璃胶囊 + 霓虹描边，文字还是彩虹滚动
     CGRect board = CGRectInset(rect, 1.0, 1.0);
     board.size.height = MAX(18.0, board.size.height);
-    CGFloat radius = MIN(9.0, CGRectGetHeight(board) / 2.0);
+    CGFloat radius = MIN(CGRectGetHeight(board) / 2.0, 12.0);
+    ANVDrawGlassCapsule(ctx, board, 0.75, radius);
 
-    UIBezierPath *bubble = [UIBezierPath bezierPathWithRoundedRect:board cornerRadius:radius];
+    // 指向宠物的小尖角
     UIBezierPath *tail = [UIBezierPath bezierPath];
-    [tail moveToPoint:CGPointMake(CGRectGetMinX(board) + 4.0, CGRectGetMaxY(board) - 1.0)];
-    [tail addLineToPoint:CGPointMake(CGRectGetMinX(board) + 1.0, CGRectGetMaxY(board) + radius * 0.9)];
-    [tail addLineToPoint:CGPointMake(CGRectGetMinX(board) + 14.0, CGRectGetMaxY(board) - 1.0)];
-    [bubble appendPath:tail];
-
-    [[UIColor colorWithWhite:0.04 alpha:0.88] setFill];
-    [bubble fill];
-    [[UIColor colorWithHue:0.75 saturation:1.0 brightness:1.0 alpha:0.6] setStroke];
-    bubble.lineWidth = 1.2;
-    [bubble stroke];
+    [tail moveToPoint:CGPointMake(CGRectGetMinX(board) + 6.0, CGRectGetMaxY(board) - 2.0)];
+    [tail addLineToPoint:CGPointMake(CGRectGetMinX(board) + 2.0, CGRectGetMaxY(board) + radius * 0.8)];
+    [tail addLineToPoint:CGPointMake(CGRectGetMinX(board) + 15.0, CGRectGetMaxY(board) - 2.0)];
+    [tail closePath];
+    [[UIColor colorWithWhite:0.04 alpha:0.80] setFill];
+    [tail fill];
+    [[UIColor colorWithHue:0.75 saturation:1.0 brightness:1.0 alpha:0.75] setStroke];
+    tail.lineWidth = 1.0;
+    [tail stroke];
 
     ANVDrawRainbowText(self.lyricText, board,
-                       MAX(9.0, CGRectGetHeight(board) * 0.50 * self.textScale),
+                       MAX(8.0, CGRectGetHeight(board) * 0.52 * self.textScale),
                        _phase, YES);
 }
 
@@ -675,13 +712,7 @@ static void ANVStarPath(CGContextRef ctx, CGPoint c, CGFloat s, UIColor *color) 
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     if (!ctx) return;
     CGRect board = CGRectInset(rect, 1.0, 1.0);
-    UIBezierPath *bg = [UIBezierPath bezierPathWithRoundedRect:board
-                                                      cornerRadius:MIN(10.0, CGRectGetHeight(board) / 2.0)];
-    [[UIColor colorWithWhite:0.05 alpha:0.82] setFill];
-    [bg fill];
-    [[UIColor colorWithHue:0.75 saturation:1.0 brightness:1.0 alpha:0.5] setStroke];
-    bg.lineWidth = 1.0;
-    [bg stroke];
+    ANVDrawGlassCapsule(ctx, board, 0.75, MIN(12.0, CGRectGetHeight(board) / 2.0));
 
     if (!self.text.length) return;
     ANVDrawRainbowText(self.text, board,

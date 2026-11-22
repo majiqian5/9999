@@ -36,6 +36,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, assign) BOOL hiddenByLock;
 @property (nonatomic, strong) UIView *pullTab;
 @property (nonatomic, strong) UIView *pullTabPill;
+@property (nonatomic, strong) UIView *spectrumClip;
 @property (nonatomic, strong) ANVPetView *petView;
 @property (nonatomic, assign) CGFloat lastLevel;
 @property (nonatomic, strong) ANVLyricsView *lyricsView;
@@ -697,6 +698,16 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     CGFloat barLength = glyph * 4 + spacing * 3 + padLong * 2;
     CGFloat barThick = glyph + padShort * 2;
     BOOL vertical = (settings.barOrientation != 0);
+
+    // 不管缩放调到多少，整条都不能超出屏幕（否则会出现「显示不全」）
+    CGSize screenSize = [UIScreen mainScreen].bounds.size;
+    CGFloat maxLen = vertical ? screenSize.height * 0.50 : screenSize.width - 20.0;
+    if (barLength > maxLen) {
+        CGFloat k = maxLen / barLength;
+        glyph *= k; spacing *= k; padLong *= k;
+        barLength = glyph * 4 + spacing * 3 + padLong * 2;
+        barThick = glyph + padShort * 2;
+    }
     CGFloat barW = vertical ? barThick : barLength;
     CGFloat barH = vertical ? barLength : barThick;
 
@@ -756,9 +767,18 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             self.spectrumView.transform = CGAffineTransformMakeRotation(
                 settings.barOrientation == 1 ? M_PI_2 : -M_PI_2);
         }
+        // 频谱套一层裁剪容器：原来频谱会溢到导航条外面，看起来像一个大椭圆
+        UIView *clip = [[UIView alloc] initWithFrame:bounds];
+        clip.clipsToBounds = YES;
+        clip.userInteractionEnabled = NO;
+        clip.layer.cornerRadius = self.barView.layer.cornerRadius;
+        clip.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [clip addSubview:self.spectrumView];
+        [self.barView addSubview:clip];
+        self.spectrumClip = clip;
+
         self.spectrumView.style = (ANVSpectrumStyle)settings.spectrumStyle;
         self.spectrumView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        [self.barView addSubview:self.spectrumView];
     }
 
     self.glyphViews = [NSMutableArray array];
@@ -947,8 +967,37 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     [self layoutWidgets];
 }
 
+- (NSDictionary *)nowBridge {
+    // NowPlayingBridge 守护进程把当前播放信息写到 /var/mobile/Documents/np.js
+    static NSDictionary *cache = nil;
+    static CFTimeInterval cachedAt = 0;
+    CFTimeInterval now = CACurrentMediaTime();
+    if (now - cachedAt < 1.0) return cache;
+    cachedAt = now;
+    cache = nil;
+
+    NSString *path = @"/var/mobile/Documents/np.js";
+    NSString *raw = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+    if (!raw.length) return nil;
+    NSRange eq = [raw rangeOfString:@"="];
+    if (eq.location == NSNotFound) return nil;
+    NSString *json = [[raw substringFromIndex:eq.location + 1]
+                      stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    while ([json hasSuffix:@";"]) json = [json substringToIndex:json.length - 1];
+    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+    if (!data) return nil;
+    id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if ([obj isKindOfClass:[NSDictionary class]]) cache = obj;
+    return cache;
+}
+
 - (NSString *)currentLyricLine {
-    // 有歌词文件就按行轮播；没有就显示正在播放的歌名
+    // 1) 优先用 NOW 桥的实时歌词行（守护进程已经对齐到播到哪一句）
+    NSDictionary *np = [self nowBridge];
+    id lyr = np[@"lyricLine"];
+    if ([lyr isKindOfClass:[NSString class]] && [lyr length]) return lyr;
+
+    // 2) 再退回本地歌词文件
     NSString *path = @"/var/mobile/Library/AndroNavBar/lyrics.txt";
     NSString *txt = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
     if (txt.length) {
@@ -956,10 +1005,19 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         NSMutableArray *valid = [NSMutableArray array];
         for (NSString *l in lines) if (l.length) [valid addObject:l];
         if (valid.count) {
-            // 随机举牌：每次随机挑一句，不再固定顺序
             NSUInteger idx = arc4random_uniform((uint32_t)valid.count);
             return valid[idx];
         }
+    }
+
+    // 3) 最后是 NOW 的标题 / 旧标题
+    id t = np[@"title"];
+    if ([t isKindOfClass:[NSString class]] && [t length]) {
+        id a = np[@"artist"];
+        if ([a isKindOfClass:[NSString class]] && [a length]) {
+            return [NSString stringWithFormat:@"%@ - %@", t, a];
+        }
+        return t;
     }
     if (self.nowPlayingTitle.length) return self.nowPlayingTitle;
     return @"AndroNavBar";
@@ -969,32 +1027,46 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     ANVSettings *st = [ANVSettings shared];
     BOOL vertical = (st.barOrientation != 0);
     CGRect bar = self.barView.frame;
+    CGSize screenSz = [UIScreen mainScreen].bounds.size;
     CGFloat thickness = vertical ? bar.size.width : bar.size.height;
 
-    CGFloat petSide = thickness * 1.15 * st.petScale;
-    CGFloat lyricH = MAX(20.0, 24.0 * st.lyricScale);
-    CGFloat lyricW = MAX(96.0, 132.0 * st.lyricScale);
+    // 宠物整体压小：原来 1.15 倍条厚，屏幕上显得又大又顶到边
+    CGFloat petSide = thickness * 0.92 * st.petScale;
+    petSide = MIN(petSide, MIN(46.0, thickness * 1.0));
+    petSide = MAX(petSide, 18.0);
+
+    CGFloat lyricH = MIN(24.0, MAX(16.0, 20.0 * st.lyricScale));
+    CGFloat lyricW = MIN(screenSz.width * 0.46, MAX(64.0, 108.0 * st.lyricScale));
     NSString *line = st.lyricEnabled ? [self currentLyricLine] : nil;
-    BOOL onLeftHalf = (CGRectGetMidX(bar) < [UIScreen mainScreen].bounds.size.width / 2.0);
+    BOOL onLeftHalf = (CGRectGetMidX(bar) < screenSz.width / 2.0);
 
     if (self.petView) {
         CGFloat signW = line.length ? lyricW : 0.0;
         CGFloat petW = petSide + signW;
-        CGFloat petH = petSide;
+        // 宠物 + 牌子最多占屏幕 88%，超了就按比例压小
+        CGFloat maxW = screenSz.width * 0.88;
+        if (petW > maxW) {
+            CGFloat k = maxW / petW;
+            petSide *= k;
+            signW *= k;
+            petW = petSide + signW;
+        }
         self.petView.sizeScale = st.petScale;
         self.petView.textScale = st.lyricScale;
         self.petView.lyricText = line;
 
         CGPoint center;
         if (vertical) {
-            center = CGPointMake(onLeftHalf ? CGRectGetMaxX(bar) + petW / 2.0 + 4.0
-                                            : CGRectGetMinX(bar) - petW / 2.0 - 4.0,
-                                 CGRectGetMidY(bar));
+            CGFloat cx = onLeftHalf ? CGRectGetMaxX(bar) + petW / 2.0 + 3.0
+                                    : CGRectGetMinX(bar) - petW / 2.0 - 3.0;
+            cx = MIN(MAX(cx, petW / 2.0 + 2.0), screenSz.width - petW / 2.0 - 2.0);
+            center = CGPointMake(cx, CGRectGetMidY(bar));
         } else {
-            center = CGPointMake(CGRectGetMinX(bar) + petW / 2.0,
-                                 CGRectGetMinY(bar) - petH / 2.0 + 4.0);
+            CGFloat cx = CGRectGetMinX(bar) + petW / 2.0;
+            cx = MIN(MAX(cx, petW / 2.0 + 2.0), screenSz.width - petW / 2.0 - 2.0);
+            center = CGPointMake(cx, CGRectGetMinY(bar) - petSide / 2.0 - 2.0);
         }
-        self.petView.bounds = CGRectMake(0, 0, petW, petH);
+        self.petView.bounds = CGRectMake(0, 0, petW, petSide);
         self.petView.center = center;
     }
 
@@ -1002,12 +1074,12 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         self.lyricsView.textScale = st.lyricScale;
         self.lyricsView.bounds = CGRectMake(0, 0, lyricW, lyricH);
         if (vertical) {
-            self.lyricsView.center = CGPointMake(onLeftHalf ? CGRectGetMaxX(bar) + lyricW / 2.0 + 6.0
-                                                            : CGRectGetMinX(bar) - lyricW / 2.0 - 6.0,
+            self.lyricsView.center = CGPointMake(onLeftHalf ? CGRectGetMaxX(bar) + lyricW / 2.0 + 4.0
+                                                            : CGRectGetMinX(bar) - lyricW / 2.0 - 4.0,
                                                  CGRectGetMidY(bar));
         } else {
             self.lyricsView.center = CGPointMake(CGRectGetMidX(bar),
-                                                 CGRectGetMinY(bar) - lyricH / 2.0 - 8.0);
+                                                 CGRectGetMinY(bar) - lyricH / 2.0 - 6.0);
         }
     }
 }
