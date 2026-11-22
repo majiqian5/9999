@@ -49,6 +49,7 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 @property (nonatomic, readonly) CGFloat haloDotScale;   // 光环点大小 0.6~2.0
 @property (nonatomic, readonly) BOOL haloRainbow;       // 九色彩虹
 @property (nonatomic, readonly) BOOL haloBounce;        // 跳动/弹跳
+@property (nonatomic, readonly) BOOL bubbleAutoFit;     // 气泡宽度随歌词长度自适应
 @property (nonatomic, readonly) CGFloat spectrumWidth;     // 频谱横占比 0.2~1.0
 @property (nonatomic, readonly) CGFloat spectrumHeight;    // 频谱高占比 0.2~1.0
 @property (nonatomic, readonly) NSInteger spectrumBars;    // 柱子数量 4~24
@@ -82,6 +83,8 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 - (void)saveBubbleH:(CGFloat)v;
 - (void)saveBubbleAlpha:(CGFloat)v;
 - (void)saveHaloDotScale:(CGFloat)v;
+- (void)saveBubbleAutoFit:(BOOL)v;
+- (void)saveTransparentBackground:(BOOL)v;
 - (void)saveHaloRainbow:(BOOL)v;
 - (void)saveHaloBounce:(BOOL)v;
 - (void)saveSpectrumWidth:(CGFloat)v;

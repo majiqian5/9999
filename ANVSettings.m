@@ -57,6 +57,7 @@ static void ANVSetPref(NSString *key, id value) {
 @property (nonatomic, assign) CGFloat haloDotScale;
 @property (nonatomic, assign) BOOL haloRainbow;
 @property (nonatomic, assign) BOOL haloBounce;
+@property (nonatomic, assign) BOOL bubbleAutoFit;
 @property (nonatomic, assign) CGFloat spectrumWidth;
 @property (nonatomic, assign) CGFloat spectrumHeight;
 @property (nonatomic, assign) NSInteger spectrumBars;
@@ -164,6 +165,31 @@ static void ANVSetPref(NSString *key, id value) {
     self.showOnLockScreen = lshow ? [lshow boolValue] : NO;
     id lyr = ANVCopyPref(@"LyricEnabled");
     self.lyricEnabled = lyr ? [lyr boolValue] : NO;
+    id bdx = ANVCopyPref(@"BubbleDX");
+    self.bubbleDX = bdx ? [bdx doubleValue] : 0.0;
+    id bdy = ANVCopyPref(@"BubbleDY");
+    self.bubbleDY = bdy ? [bdy doubleValue] : 0.0;
+    id bw = ANVCopyPref(@"BubbleW");
+    self.bubbleW = bw ? [bw doubleValue] : 120.0;
+    id bh = ANVCopyPref(@"BubbleH");
+    self.bubbleH = bh ? [bh doubleValue] : 24.0;
+    id ba = ANVCopyPref(@"BubbleAlpha");
+    self.bubbleAlpha = ba ? [ba doubleValue] : 0.85;
+    id baf = ANVCopyPref(@"BubbleAutoFit");
+    self.bubbleAutoFit = baf ? [baf boolValue] : YES;
+    id hds = ANVCopyPref(@"HaloDotScale");
+    self.haloDotScale = hds ? [hds doubleValue] : 1.0;
+    id hrw = ANVCopyPref(@"HaloRainbow");
+    self.haloRainbow = hrw ? [hrw boolValue] : YES;
+    id hbt = ANVCopyPref(@"HaloBounce");
+    self.haloBounce = hbt ? [hbt boolValue] : YES;
+    // 夹取脏值：旧版本没写入过这些键时会读成 0
+    self.bubbleDX = MIN(MAX(self.bubbleDX, -160.0), 160.0);
+    self.bubbleDY = MIN(MAX(self.bubbleDY, -80.0), 80.0);
+    if (self.bubbleW < 60.0) self.bubbleW = 120.0;
+    if (self.bubbleH < 16.0) self.bubbleH = 24.0;
+    if (self.bubbleAlpha < 0.15) self.bubbleAlpha = 0.85;
+    if (self.haloDotScale < 0.6) self.haloDotScale = 1.0;
     id lyrs = ANVCopyPref(@"LyricScale");
     self.lyricScale = lyrs ? [lyrs doubleValue] : 1.0;
 
@@ -266,6 +292,10 @@ static void ANVSetPref(NSString *key, id value) {
 - (void)saveBubbleW:(CGFloat)v { self.bubbleW = MIN(MAX(v, 60.0), 360.0); ANVSetPref(@"BubbleW", @(self.bubbleW)); }
 - (void)saveBubbleH:(CGFloat)v { self.bubbleH = MIN(MAX(v, 16.0), 44.0); ANVSetPref(@"BubbleH", @(self.bubbleH)); }
 - (void)saveBubbleAlpha:(CGFloat)v { self.bubbleAlpha = MIN(MAX(v, 0.15), 1.0); ANVSetPref(@"BubbleAlpha", @(self.bubbleAlpha)); }
+- (void)saveTransparentBackground:(BOOL)v { self.transparentBackground = v; ANVSetPref(@"TransparentBackground", @(v)); }
+
+- (void)saveBubbleAutoFit:(BOOL)v { self.bubbleAutoFit = v; ANVSetPref(@"BubbleAutoFit", @(v)); }
+
 - (void)saveHaloDotScale:(CGFloat)v { self.haloDotScale = MIN(MAX(v, 0.6), 2.0); ANVSetPref(@"HaloDotScale", @(self.haloDotScale)); }
 - (void)saveHaloRainbow:(BOOL)v { self.haloRainbow = v; ANVSetPref(@"HaloRainbow", @(v)); }
 - (void)saveHaloBounce:(BOOL)v { self.haloBounce = v; ANVSetPref(@"HaloBounce", @(v)); }

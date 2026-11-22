@@ -1,4 +1,5 @@
 #import "ANVBarController.h"
+#import "ANVInfo.h"
 #import "ANVGlyphView.h"
 #import <objc/runtime.h>
 #import <objc/message.h>
@@ -23,6 +24,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, strong) UIWindow *window;
 @property (nonatomic, strong) UIView *barView;
 @property (nonatomic, strong) UIVisualEffectView *blurView;
+@property (nonatomic, copy) NSString *infoLineText;
 @property (nonatomic, strong) NSMutableArray<ANVGlyphView *> *glyphViews;
 @property (nonatomic, strong) NSMutableArray<UIButton *> *buttons;
 @property (nonatomic, strong) ANVSpectrumView *spectrumView;
@@ -381,6 +383,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"光环点 %ld%% · 减", (long)lround(st.haloDotScale * 100)],
         [NSString stringWithFormat:@"光环九色 · %@", st.haloRainbow ? @"开" : @"关"],
         [NSString stringWithFormat:@"光环跳动 · %@", st.haloBounce ? @"开" : @"关"],
+        [NSString stringWithFormat:@"键背景透明 · %@", st.transparentBackground ? @"开" : @"关"],
+        [NSString stringWithFormat:@"气泡自适应歌词 · %@", st.bubbleAutoFit ? @"开" : @"关"],
         [NSString stringWithFormat:@"麦克风频谱 · %@", st.micSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"模拟频谱 · %@", st.simulateSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"位置 · %@", st.positionLocked ? @"已锁定" : @"可拖动"],
@@ -392,7 +396,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                       @200, @201, @202, @203, @204, @205, @206, @207,
                       @210, @211, @212, @213, @217, @220, @221, @218, @219, @214, @215, @216,
                       @222, @223, @224, @225, @226, @227, @228, @229, @230, @231,
-                      @232, @233, @234, @235,
+                      @232, @233, @234, @235, @236, @237,
                       @10, @11, @13, @14, @15];
 
     if (titles.count > 18) rowH = 30.0;
@@ -405,10 +409,22 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     CGFloat panelH = scrollH + dirRowH + 10.0;
 
     UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, panelH)];
-    panel.backgroundColor = [UIColor colorWithWhite:0.06 alpha:0.94];
-    panel.layer.cornerRadius = 14.0;
+    panel.backgroundColor = [UIColor clearColor];
+    panel.layer.cornerRadius = 16.0;
     panel.layer.borderWidth = 1.0;
-    panel.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.12].CGColor;
+    panel.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.22].CGColor;
+    panel.layer.masksToBounds = YES;
+
+    UIBlurEffect *panelEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialDark];
+    UIVisualEffectView *panelBlur = [[UIVisualEffectView alloc] initWithEffect:panelEffect];
+    panelBlur.frame = panel.bounds;
+    panelBlur.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    [panel addSubview:panelBlur];
+    UIView *panelTint = [[UIView alloc] initWithFrame:panel.bounds];
+    panelTint.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    panelTint.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.10];
+    panelTint.userInteractionEnabled = NO;
+    [panel addSubview:panelTint];
 
     // 行太多会超出屏幕，套一层滚动视图，能上下滑
     UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 0, width, scrollH)];
@@ -423,15 +439,16 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         UIButton *row = [UIButton buttonWithType:UIButtonTypeCustom];
         row.frame = CGRectMake(0, 4 + rowH * i, width, rowH);
         row.tag = i < tags.count ? [tags[i] integerValue] : (NSInteger)i;
-        row.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
-        [row setTitle:titles[i] forState:UIControlStateNormal];
-        [row setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        UIFont *rowFont = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
+        row.titleLabel.font = rowFont;
+        [row setAttributedTitle:[self rainbowTitle:titles[i] font:rowFont]
+                        forState:UIControlStateNormal];
         [row addTarget:self action:@selector(panelRowTapped:) forControlEvents:UIControlEventTouchUpInside];
         [scroll addSubview:row];
 
         if (i + 1 < titles.count) {
             UIView *line = [[UIView alloc] initWithFrame:CGRectMake(12, 4 + rowH * (i + 1), width - 24, 0.5)];
-            line.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.10];
+            line.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.14];
             line.userInteractionEnabled = NO;
             [scroll addSubview:line];
         }
@@ -453,9 +470,10 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         dir.layer.borderWidth = 1.0;
         dir.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.18].CGColor;
         dir.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.08];
-        dir.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
-        [dir setTitle:dirTitles[i] forState:UIControlStateNormal];
-        [dir setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        UIFont *dirFont = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+        dir.titleLabel.font = dirFont;
+        [dir setAttributedTitle:[self rainbowTitle:dirTitles[i] font:dirFont]
+                        forState:UIControlStateNormal];
         [dir addTarget:self action:@selector(directionTapped:) forControlEvents:UIControlEventTouchUpInside];
         [dirRow addSubview:dir];
     }
@@ -472,6 +490,22 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     }
     panel.frame = CGRectMake(([UIScreen mainScreen].bounds.size.width - width) / 2.0,
                              top, width, CGRectGetHeight(panel.bounds));
+}
+
+/// 九色逐字彩虹文字
+- (NSAttributedString *)rainbowTitle:(NSString *)text font:(UIFont *)font {
+    static CGFloat const hues[9] = {0.00, 0.09, 0.14, 0.33, 0.48, 0.58, 0.72, 0.88, 0.00};
+    static CGFloat const sats[9] = {0.95, 1.00, 0.95, 1.00, 0.90, 0.95, 0.85, 0.80, 0.00};
+    NSMutableAttributedString *out = [[NSMutableAttributedString alloc] init];
+    for (NSUInteger i = 0; i < text.length; i++) {
+        NSInteger ci = (NSInteger)i % 9;
+        UIColor *col = [UIColor colorWithHue:hues[ci] saturation:sats[ci] brightness:1.0 alpha:1.0];
+        if (sats[ci] < 0.1) col = [UIColor colorWithWhite:1.0 alpha:0.98];
+        NSDictionary *attrs = @{NSFontAttributeName: font, NSForegroundColorAttributeName: col};
+        [out appendAttributedString:[[NSAttributedString alloc]
+            initWithString:[text substringWithRange:NSMakeRange(i, 1)] attributes:attrs]];
+    }
+    return out;
 }
 
 - (void)hidePanel {
@@ -514,6 +548,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     ANVSettings *st = [ANVSettings shared];
     if (!self.petView) return;
     NSInteger style = st.petStyle;
+    NSLog(@"[AndroNavBar] petStyle = %ld", (long)style);
     if (style <= 0) style = (NSInteger)arc4random_uniform(5); else style -= 1;
     self.petView.style = style;
     self.petView.partnerStyle = (NSInteger)arc4random_uniform(5);
@@ -652,6 +687,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 232: [settings saveHaloDotScale:settings.haloDotScale + 0.1]; [self applyHaloSettings]; break;
         case 233: [settings saveHaloDotScale:settings.haloDotScale - 0.1]; [self applyHaloSettings]; break;
         case 234: [settings saveHaloRainbow:!settings.haloRainbow]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
+        case 237: [settings saveBubbleAutoFit:!settings.bubbleAutoFit]; [self applyBubbleSettings]; break;
+        case 236: [settings saveTransparentBackground:!settings.transparentBackground]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 235: [settings saveHaloBounce:!settings.haloBounce]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
         case 221: [settings savePetSide:(settings.petSide + 1) % 3]; [self layoutWidgets]; [self hidePanel]; [self showPanel]; break;
         case 220: [settings savePetCount:(settings.petCount % 5) + 1]; [self applyPetCount]; [self hidePanel]; [self showPanel]; break;
@@ -1007,7 +1044,28 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         CFTimeInterval nowP = CACurrentMediaTime();
         if (nowP - lastPetLyric > 4.0) {
             lastPetLyric = nowP;
-            self.petView.lyricText = [ANVSettings shared].lyricEnabled ? [self currentLyricLine] : nil;
+            self.petView.lyricText = [self bubbleText];
+            static CFTimeInterval lastInfo = 0;
+            CFTimeInterval nowI = CACurrentMediaTime();
+            NSDictionary *npNow = [self nowBridge];
+            id rawLyr = npNow[@"lyricLine"];
+            BOOL hasLyric = [rawLyr isKindOfClass:[NSString class]] && [rawLyr length] > 0;
+            if (!hasLyric && nowI - lastInfo > 8.0) {
+                lastInfo = nowI;
+                self.infoLineText = [ANVInfo nextInfoLineWithWeather:npNow[@"weather"]];
+            }
+            double npDur = [npNow[@"duration"] doubleValue];
+            double npEla = [npNow[@"elapsed"] doubleValue];
+            BOOL npPlaying = NO;
+            id npPg = npNow[@"playing"];
+            if ([npPg respondsToSelector:@selector(boolValue)]) npPlaying = [npPg boolValue];
+            if (npDur > 1.0 && (npPlaying || npEla > 0.0)) {
+                self.petView.songProgress = (CGFloat)(npEla / npDur);
+                self.petView.songProgressValid = YES;
+            } else {
+                self.petView.songProgress = 0.0;
+                self.petView.songProgressValid = NO;
+            }
         }
     }
     if (self.lyricsView) {
@@ -1016,7 +1074,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         CFTimeInterval nowL = CACurrentMediaTime();
         if (nowL - lastLyric > 4.0) {
             lastLyric = nowL;
-            self.lyricsView.text = [self currentLyricLine];
+            self.lyricsView.text = [self bubbleText];
         }
     }
     [self.spectrumView updateLevels:levels count:10];
@@ -1055,6 +1113,18 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [self.window.rootViewController.view addSubview:self.lyricsView];
     }
     [self layoutWidgets];
+}
+
+/// 气泡文字：有真歌词就显示歌词，没有就轮播 时间/天气/农历/节日倒计时
+- (NSString *)bubbleText {
+    NSDictionary *np = [self nowBridge];
+    id lyr = np[@"lyricLine"];
+    if ([lyr isKindOfClass:[NSString class]] && [lyr length]) return lyr;
+    if (![ANVSettings shared].lyricEnabled) return nil;
+    if (!self.infoLineText.length) {
+        self.infoLineText = [ANVInfo nextInfoLineWithWeather:np[@"weather"]];
+    }
+    return self.infoLineText;
 }
 
 - (NSDictionary *)nowBridge {
@@ -1127,8 +1197,20 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     petSide = MAX(petSide, 18.0);
 
     CGFloat lyricH = MIN(24.0, MAX(16.0, 20.0 * st.lyricScale));
+    NSString *line = st.lyricEnabled ? [self bubbleText] : nil;
     CGFloat lyricW = MIN(screenSz.width * 0.80, MAX(60.0, st.bubbleW));
-    NSString *line = st.lyricEnabled ? [self currentLyricLine] : nil;
+    if (st.bubbleAutoFit) {
+        if (line.length) {
+            CGFloat fitH = MIN(MAX(st.bubbleH, 16.0), 44.0);
+            UIFont *fitFont = [UIFont systemFontOfSize:MAX(7.0, fitH * 0.48 * st.lyricScale)
+                                                       weight:UIFontWeightMedium];
+            CGFloat tw = [line sizeWithAttributes:@{NSFontAttributeName: fitFont}].width + 20.0;
+            CGFloat cap = MIN(screenSz.width * 0.80, MAX(st.bubbleW, 60.0));
+            lyricW = MIN(MAX(tw, 56.0), cap);
+        } else {
+            lyricW = 0.0;
+        }
+    }
     BOOL onLeftHalf = (CGRectGetMidX(bar) < screenSz.width / 2.0);
 
     if (self.petView) {
@@ -1154,7 +1236,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         self.petView.petSideMode = sideMode;
         self.petView.bubbleDX = st.bubbleDX;
         self.petView.bubbleDY = st.bubbleDY;
-        self.petView.bubbleW = st.bubbleW;
+        self.petView.bubbleW = (st.bubbleAutoFit && line.length) ? lyricW : st.bubbleW;
         self.petView.bubbleH = st.bubbleH;
         self.petView.bubbleAlpha = st.bubbleAlpha;
         self.petView.lyricText = line;
