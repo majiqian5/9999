@@ -158,7 +158,7 @@ static void ANVSetPref(NSString *key, id value) {
     id pets = ANVCopyPref(@"PetScale");
     self.petScale = pets ? [pets doubleValue] : 1.0;
     id petst = ANVCopyPref(@"PetStyle");
-    self.petStyle = petst ? [petst integerValue] : 0;
+    self.petStyle = petst ? MIN(MAX([petst integerValue], 0), 10) : 0;
     id pcnt = ANVCopyPref(@"PetCount");
     self.petCount = pcnt ? MIN(MAX([pcnt integerValue], 1), 5) : 1;
     id pside = ANVCopyPref(@"PetSide");
@@ -277,7 +277,7 @@ static void ANVSetPref(NSString *key, id value) {
 }
 
 - (void)savePetStyle:(NSInteger)v {
-    self.petStyle = MIN(MAX(v, 0), 5);
+    self.petStyle = MIN(MAX(v, 0), 10);
     ANVSetPref(@"PetStyle", @(self.petStyle));
 }
 

@@ -114,6 +114,11 @@ static UIColor *ANVBodyColorForStyle(NSInteger style) {
         case 2: return [UIColor colorWithRed:1.0 green:0.70 blue:0.80 alpha:1];   // 樱花粉
         case 3: return [UIColor colorWithRed:0.20 green:0.24 blue:0.32 alpha:1];  // 墨蓝企鹅
         case 4: return [UIColor colorWithRed:0.95 green:0.97 blue:1.0 alpha:1];   // 幽灵白
+        case 5: return [UIColor colorWithRed:0.42 green:0.85 blue:0.50 alpha:1];  // 草绿小恐龙
+        case 6: return [UIColor colorWithRed:0.95 green:0.72 blue:0.45 alpha:1];  // 柴犬橘
+        case 7: return [UIColor colorWithRed:1.00 green:0.88 blue:0.30 alpha:1];  // 小黄鸭
+        case 8: return [UIColor colorWithRed:0.98 green:0.98 blue:0.98 alpha:1];  // 熊猫白
+        case 9: return [UIColor colorWithRed:0.88 green:0.82 blue:1.00 alpha:1];  // 独角兽紫
         default: return [UIColor colorWithRed:0.62 green:0.85 blue:1.0 alpha:1];  // 天蓝团子
     }
 }
@@ -192,12 +197,12 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
 }
 
 - (void)setStyle:(NSInteger)style {
-    _style = MIN(MAX(style, 0), 4);
+    _style = MIN(MAX(style, 0), 9);
     [self setNeedsDisplay];
 }
 
 - (void)setPartnerStyle:(NSInteger)partnerStyle {
-    _partnerStyle = MIN(MAX(partnerStyle, 0), 4);
+    _partnerStyle = MIN(MAX(partnerStyle, 0), 9);
     [self setNeedsDisplay];
 }
 
@@ -248,11 +253,16 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
 }
 
 + (NSString *)titleForStyle:(NSInteger)style {
-    switch (MIN(MAX(style, 0), 4)) {
+    switch (MIN(MAX(style, 0), 9)) {
         case 1:  return @"电气狐";
         case 2:  return @"樱花猫";
         case 3:  return @"企鹅";
         case 4:  return @"小幽灵";
+        case 5:  return @"小恐龙";
+        case 6:  return @"柴犬";
+        case 7:  return @"小黄鸭";
+        case 8:  return @"熊猫";
+        case 9:  return @"独角兽";
         default: return @"蓝团子";
     }
 }
@@ -407,7 +417,7 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
             CGContextTranslateCTM(ctx, -pv.x, -pv.y);
         }
         [self drawPetInContext:ctx rect:petRect
-                          style:((self.style + gi) % 5)
+                          style:((self.style + gi) % 10)
                       eyeClosed:eyesClosed
                       mouthOpen:mouthOpen];
         CGContextRestoreGState(ctx);
@@ -642,6 +652,109 @@ static CGPoint ANVRoundRectPoint(CGRect r, CGFloat rad, CGFloat d) {
                                                               radius:open ? 3.8 : 3.2
                                                           startAngle:0 endAngle:M_PI clockwise:YES];
         PetStroke(ctx, mouth3, dark, 1.4);
+    } else if (style == 5) {                // 小恐龙
+        // 尾巴 + 背刺
+        UIBezierPath *dt = [UIBezierPath bezierPath];
+        [dt moveToPoint:CGPointMake(74, 72)];
+        [dt addQuadCurveToPoint:CGPointMake(92, 60) controlPoint:CGPointMake(88, 78)];
+        PetStroke(ctx, dt, accent, 6);
+        for (NSInteger i = 0; i < 3; i++) {
+            UIBezierPath *spike = [UIBezierPath bezierPath];
+            CGFloat y = 40.0 + (CGFloat)i * 12.0;
+            [spike moveToPoint:CGPointMake(28, y)];
+            [spike addLineToPoint:CGPointMake(20, y - 5)];
+            [spike addLineToPoint:CGPointMake(28, y - 9)];
+            [spike closePath];
+            PetFill(ctx, spike, [UIColor colorWithRed:1 green:0.62 blue:0.3 alpha:1]);
+        }
+        PetEllipse(ctx, 52, 58, 27, 24, body);
+        PetEllipse(ctx, 40, 80, 9, 6, accent);
+        PetEllipse(ctx, 64, 80, 9, 6, accent);
+        ANVStrokeEyes(ctx, CGPointMake(42, 52), CGPointMake(62, 52), 5.0, dark, closed);
+        PetCircle(ctx, 33, 64, 4.2, [UIColor colorWithRed:1 green:0.55 blue:0.55 alpha:0.55]);
+        PetCircle(ctx, 71, 64, 4.2, [UIColor colorWithRed:1 green:0.55 blue:0.55 alpha:0.55]);
+        UIBezierPath *dm = [UIBezierPath bezierPath];
+        [dm moveToPoint:CGPointMake(44, 68)];
+        [dm addQuadCurveToPoint:CGPointMake(60, 68) controlPoint:CGPointMake(52, open ? 77 : 73)];
+        PetStroke(ctx, dm, dark, 1.6);
+    } else if (style == 6) {                // 柴犬
+        UIBezierPath *e1 = [UIBezierPath bezierPath];
+        [e1 moveToPoint:CGPointMake(30, 34)];
+        [e1 addLineToPoint:CGPointMake(26, 14)];
+        [e1 addLineToPoint:CGPointMake(44, 26)];
+        PetFill(ctx, e1, accent);
+        UIBezierPath *e2 = [UIBezierPath bezierPath];
+        [e2 moveToPoint:CGPointMake(70, 34)];
+        [e2 addLineToPoint:CGPointMake(74, 14)];
+        [e2 addLineToPoint:CGPointMake(56, 26)];
+        PetFill(ctx, e2, accent);
+        PetCircle(ctx, 50, 56, 27, body);
+        PetEllipse(ctx, 50, 68, 17, 11, [UIColor colorWithRed:1 green:0.97 blue:0.92 alpha:1]);
+        ANVStrokeEyes(ctx, CGPointMake(40, 50), CGPointMake(60, 50), 4.6, dark, closed);
+        PetEllipse(ctx, 50, 62, 4, 3, dark);
+        UIBezierPath *sm = [UIBezierPath bezierPath];
+        [sm moveToPoint:CGPointMake(44, 70)];
+        [sm addQuadCurveToPoint:CGPointMake(56, 70) controlPoint:CGPointMake(50, open ? 78 : 74)];
+        PetStroke(ctx, sm, dark, 1.5);
+        PetCircle(ctx, 31, 64, 4.0, [UIColor colorWithRed:1 green:0.6 blue:0.6 alpha:0.5]);
+        PetCircle(ctx, 69, 64, 4.0, [UIColor colorWithRed:1 green:0.6 blue:0.6 alpha:0.5]);
+    } else if (style == 7) {                // 小黄鸭
+        PetEllipse(ctx, 50, 60, 28, 26, body);
+        PetEllipse(ctx, 38, 30, 15, 15, body);
+        UIBezierPath *beak = [UIBezierPath bezierPath];
+        [beak moveToPoint:CGPointMake(50, 28)];
+        [beak addLineToPoint:CGPointMake(66, 34)];
+        [beak addLineToPoint:CGPointMake(50, 40)];
+        [beak closePath];
+        PetFill(ctx, beak, [UIColor colorWithRed:1 green:0.58 blue:0.22 alpha:1]);
+        PetCircle(ctx, 41, 26, 2.4, dark);
+        ANVStrokeEyes(ctx, CGPointMake(42, 55), CGPointMake(62, 55), 4.6, dark, closed);
+        PetEllipse(ctx, 30, 68, 10, 7, accent);
+        UIBezierPath *wing = [UIBezierPath bezierPath];
+        [wing moveToPoint:CGPointMake(30, 62)];
+        [wing addQuadCurveToPoint:CGPointMake(46, 76) controlPoint:CGPointMake(26, 76)];
+        PetStroke(ctx, wing, accent, 3);
+        PetCircle(ctx, 31, 66, 4.0, [UIColor colorWithRed:1 green:0.6 blue:0.6 alpha:0.55]);
+        PetCircle(ctx, 69, 66, 4.0, [UIColor colorWithRed:1 green:0.6 blue:0.6 alpha:0.55]);
+    } else if (style == 8) {                // 熊猫
+        PetCircle(ctx, 28, 30, 11, [UIColor colorWithWhite:0.16 alpha:1]);
+        PetCircle(ctx, 72, 30, 11, [UIColor colorWithWhite:0.16 alpha:1]);
+        PetCircle(ctx, 50, 58, 29, body);
+        PetEllipse(ctx, 37, 52, 11, 13, [UIColor colorWithWhite:0.16 alpha:1]);
+        PetEllipse(ctx, 63, 52, 11, 13, [UIColor colorWithWhite:0.16 alpha:1]);
+        PetCircle(ctx, 37, 52, 4.6, [UIColor whiteColor]);
+        PetCircle(ctx, 63, 52, 4.6, [UIColor whiteColor]);
+        PetCircle(ctx, 37, 52, 2.6, dark);
+        PetCircle(ctx, 63, 52, 2.6, dark);
+        PetEllipse(ctx, 50, 64, 4, 3, dark);
+        UIBezierPath *pm = [UIBezierPath bezierPath];
+        [pm moveToPoint:CGPointMake(44, 69)];
+        [pm addQuadCurveToPoint:CGPointMake(56, 69) controlPoint:CGPointMake(50, open ? 77 : 73)];
+        PetStroke(ctx, pm, dark, 1.5);
+        PetEllipse(ctx, 50, 82, 18, 7, [UIColor colorWithWhite:0.16 alpha:1]);
+    } else if (style == 9) {                // 独角兽
+        UIBezierPath *horn = [UIBezierPath bezierPath];
+        [horn moveToPoint:CGPointMake(44, 34)];
+        [horn addLineToPoint:CGPointMake(50, 6)];
+        [horn addLineToPoint:CGPointMake(56, 34)];
+        [horn closePath];
+        PetFill(ctx, horn, [UIColor colorWithHue:0.55 saturation:0.6 brightness:1.0 alpha:1]);
+        PetCircle(ctx, 50, 58, 28, body);
+        // 鬃毛
+        for (NSInteger i = 0; i < 4; i++) {
+            UIColor *mc = [UIColor colorWithHue:fmod(0.92 + (CGFloat)i * 0.12, 1.0)
+                                      saturation:0.9 brightness:1.0 alpha:1];
+            PetCircle(ctx, 26 + (CGFloat)i * 5, 42 + (CGFloat)i * 9, 6.0, mc);
+        }
+        ANVStrokeEyes(ctx, CGPointMake(40, 52), CGPointMake(60, 52), 4.8, dark, closed);
+        PetCircle(ctx, 50, 62, 2.6, [UIColor colorWithHue:0.9 saturation:0.9 brightness:1 alpha:1]);
+        PetCircle(ctx, 31, 64, 4.2, [UIColor colorWithRed:1 green:0.7 blue:0.85 alpha:0.55]);
+        PetCircle(ctx, 69, 64, 4.2, [UIColor colorWithRed:1 green:0.7 blue:0.85 alpha:0.55]);
+        UIBezierPath *um = [UIBezierPath bezierPath];
+        [um moveToPoint:CGPointMake(45, 68)];
+        [um addQuadCurveToPoint:CGPointMake(55, 68) controlPoint:CGPointMake(50, open ? 76 : 72)];
+        PetStroke(ctx, um, dark, 1.5);
+        PetEllipse(ctx, 50, 84, 16, 6, accent);
     } else {                                // 蓝团子
         PetEllipse(ctx, 26, 30, 9, 15, accent);
         PetEllipse(ctx, 74, 30, 9, 15, accent);

@@ -559,9 +559,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     if (!self.petView) return;
     NSInteger style = st.petStyle;
     NSLog(@"[AndroNavBar] petStyle = %ld", (long)style);
-    if (style <= 0) style = (NSInteger)arc4random_uniform(5); else style -= 1;
+    if (style <= 0) style = (NSInteger)arc4random_uniform(10); else style -= 1;
     self.petView.style = style;
-    self.petView.partnerStyle = (NSInteger)arc4random_uniform(5);
+    self.petView.partnerStyle = (NSInteger)arc4random_uniform(10);
     [self.petView setNeedsDisplay];
 }
 
@@ -659,7 +659,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 4: [settings saveScalePercent:lround(settings.scale * 100) + 10]; [self rebuildBar]; break;
         case 5: [settings saveScalePercent:lround(settings.scale * 100) - 10]; [self rebuildBar]; break;
         case 7: {
-            [settings saveSpectrumStyle:(settings.spectrumStyle + 1) % 18];
+            [settings saveSpectrumStyle:(settings.spectrumStyle + 1) % 28];
             self.spectrumView.style = (ANVSpectrumStyle)settings.spectrumStyle;
         self.spectrumView.haloDotScale = settings.haloDotScale;
         self.spectrumView.haloRainbow = settings.haloRainbow;
@@ -704,7 +704,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 220: [settings savePetCount:(settings.petCount % 5) + 1]; [self applyPetCount]; [self hidePanel]; [self showPanel]; break;
         case 218: [settings savePetAction:(settings.petAction + 1) % 22]; [self applyPetAction]; [self hidePanel]; [self showPanel]; break;
         case 219: [settings saveShowOnLockScreen:!settings.showOnLockScreen]; [self updateLockVisibility]; [self hidePanel]; [self showPanel]; break;
-        case 217: [settings savePetStyle:(settings.petStyle + 1) % 6]; [self applyPetStyle]; [self hidePanel]; [self showPanel]; break;
+        case 217: [settings savePetStyle:(settings.petStyle + 1) % 11]; [self applyPetStyle]; [self hidePanel]; [self showPanel]; break;
         case 210: [settings saveBarOrientation:(settings.barOrientation + 1) % 3]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 211: [settings savePetEnabled:!settings.petEnabled]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 212: [settings savePetScale:settings.petScale + 0.1]; [self applyWidgetSettings]; [self hidePanel]; [self showPanel]; break;
