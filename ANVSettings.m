@@ -225,7 +225,7 @@ static void ANVSetPref(NSString *key, id value) {
 }
 
 - (void)saveSpectrumStyle:(NSInteger)style {
-    NSInteger clamped = MAX(0, MIN(17, style));
+    NSInteger clamped = MAX(0, MIN(27, style));
     ANVSetPref(@"SpectrumStyle", @(clamped));
     self.spectrumStyle = clamped;
 }
