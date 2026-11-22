@@ -49,6 +49,14 @@ static void ANVSetPref(NSString *key, id value) {
 @property (nonatomic, assign) BOOL showOnLockScreen;
 @property (nonatomic, assign) BOOL lyricEnabled;
 @property (nonatomic, assign) CGFloat lyricScale;
+@property (nonatomic, assign) CGFloat bubbleDX;
+@property (nonatomic, assign) CGFloat bubbleDY;
+@property (nonatomic, assign) CGFloat bubbleW;
+@property (nonatomic, assign) CGFloat bubbleH;
+@property (nonatomic, assign) CGFloat bubbleAlpha;
+@property (nonatomic, assign) CGFloat haloDotScale;
+@property (nonatomic, assign) BOOL haloRainbow;
+@property (nonatomic, assign) BOOL haloBounce;
 @property (nonatomic, assign) CGFloat spectrumWidth;
 @property (nonatomic, assign) CGFloat spectrumHeight;
 @property (nonatomic, assign) NSInteger spectrumBars;
@@ -252,6 +260,15 @@ static void ANVSetPref(NSString *key, id value) {
     self.lyricEnabled = on;
     ANVSetPref(@"LyricEnabled", @(on));
 }
+
+- (void)saveBubbleDX:(CGFloat)v { self.bubbleDX = MIN(MAX(v, -160.0), 160.0); ANVSetPref(@"BubbleDX", @(self.bubbleDX)); }
+- (void)saveBubbleDY:(CGFloat)v { self.bubbleDY = MIN(MAX(v, -80.0), 80.0); ANVSetPref(@"BubbleDY", @(self.bubbleDY)); }
+- (void)saveBubbleW:(CGFloat)v { self.bubbleW = MIN(MAX(v, 60.0), 360.0); ANVSetPref(@"BubbleW", @(self.bubbleW)); }
+- (void)saveBubbleH:(CGFloat)v { self.bubbleH = MIN(MAX(v, 16.0), 44.0); ANVSetPref(@"BubbleH", @(self.bubbleH)); }
+- (void)saveBubbleAlpha:(CGFloat)v { self.bubbleAlpha = MIN(MAX(v, 0.15), 1.0); ANVSetPref(@"BubbleAlpha", @(self.bubbleAlpha)); }
+- (void)saveHaloDotScale:(CGFloat)v { self.haloDotScale = MIN(MAX(v, 0.6), 2.0); ANVSetPref(@"HaloDotScale", @(self.haloDotScale)); }
+- (void)saveHaloRainbow:(BOOL)v { self.haloRainbow = v; ANVSetPref(@"HaloRainbow", @(v)); }
+- (void)saveHaloBounce:(BOOL)v { self.haloBounce = v; ANVSetPref(@"HaloBounce", @(v)); }
 
 - (void)saveLyricScale:(CGFloat)v {
     self.lyricScale = MIN(MAX(v, 0.6), 1.6);

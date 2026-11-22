@@ -27,6 +27,9 @@
         _widthRatio = 1.0;
         _heightRatio = 1.0;
         _thickness = 0.62;
+        _haloDotScale = 1.0;
+        _haloRainbow = YES;
+        _haloBounce = YES;
     }
     return self;
 }
@@ -427,52 +430,79 @@
     CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
 }
 
-/// 旋转光环：椭圆轨道上的亮点，转角跟频谱驱动（顺时针/逆时针随机换向）
+/// 旋转光环：椭圆轨道上的亮点，逐个按电平点亮，可选九色彩虹与跳动
 - (void)drawHaloInContext:(CGContextRef)ctx rect:(CGRect)rect {
     CGRect content = [self contentRectForRect:rect];
     NSInteger n = MAX(self.barCount, 10);
     CGFloat rx = CGRectGetWidth(content) * 0.46;
     CGFloat ry = CGRectGetHeight(content) * 0.44;
+    CGFloat dotScale = MIN(MAX(self.haloDotScale, 0.6), 2.0);
 
-    // 轨道底环：一圈很淡的线，让旋转看得出来
+    // 九色：红 橙 黄 绿 青 蓝 紫 粉 白
+    static CGFloat const hues[9] = {0.00, 0.09, 0.14, 0.33, 0.48, 0.58, 0.72, 0.88, 0.00};
+    static CGFloat const sats[9] = {0.95, 1.00, 0.95, 1.00, 0.90, 0.95, 0.85, 0.80, 0.00};
+
+    // 轨道底环
     UIBezierPath *track = [UIBezierPath bezierPathWithOvalInRect:
         CGRectInset(content, CGRectGetWidth(content) * 0.04, CGRectGetHeight(content) * 0.06)];
-    [[UIColor colorWithHue:0.75 saturation:0.5 brightness:1.0 alpha:0.10 + 0.10 * _haloSmoothEnergy] setStroke];
+    [[UIColor colorWithHue:0.75 saturation:0.5 brightness:1.0 alpha:0.10 + 0.12 * _haloSmoothEnergy] setStroke];
     track.lineWidth = 1.0;
     [track stroke];
 
-    // 拖影：越靠后的点越暗越小，看起来在转
+    CGFloat litPos = _haloSmoothEnergy * (CGFloat)n;      // 亮到第几个点
+    NSInteger colorShift = (NSInteger)floor(litPos);      // 颜色随电平往前滚
+
+    CGFloat bounceAmp = 0.0;
+    if (self.haloBounce) {
+        bounceAmp = CGRectGetHeight(content) * 0.10 * (0.25 + _haloSmoothEnergy);
+    }
+
     for (NSInteger pass = 2; pass >= 0; pass--) {
         CGFloat trail = (CGFloat)pass * 0.16;
-        CGFloat alpha = pass == 0 ? 1.0 : (0.36 - 0.12 * (CGFloat)pass);
-        CGFloat scale = pass == 0 ? 1.0 : 0.72;
+        CGFloat baseAlpha = pass == 0 ? 1.0 : (0.34 - 0.11 * (CGFloat)pass);
+        CGFloat baseScale = pass == 0 ? 1.0 : 0.72;
         for (NSInteger i = 0; i < n; i++) {
             CGFloat angle = _haloAngle + (CGFloat)i / (CGFloat)n * 2.0 * (CGFloat)M_PI
                             - (CGFloat)_haloDir * trail;
             CGFloat level = MAX([self levelAtIndex:(i % kANVSrcBars)], 0.12f);
-            // 逐个点亮：电平越高，亮的点越多（从第一个点开始依次亮起）
-            CGFloat litPos = _haloSmoothEnergy * (CGFloat)n;
+
             CGFloat litFactor = 0.0;
             if ((CGFloat)i < litPos - 1.0) litFactor = 1.0;
             else if ((CGFloat)i < litPos) litFactor = litPos - (CGFloat)i;
-            if (litFactor < 0.0) litFactor = 0.0;
-            if (litFactor > 1.0) litFactor = 1.0;
-            alpha *= 0.18 + 0.82 * litFactor;
-            scale *= 0.55 + 0.45 * litFactor;
-            CGFloat x = CGRectGetMidX(content) + cos(angle) * rx;
-            CGFloat y = CGRectGetMidY(content) + sin(angle) * ry;
-            CGFloat dot = (1.5 + 3.2 * level) * scale;
-            UIColor *color = [[self colorForBar:i] colorWithAlphaComponent:alpha];
+            litFactor = MIN(MAX(litFactor, 0.0), 1.0);
+
+            // 跳动：每个点亮起时向外弹一下
+            CGFloat bounce = bounceAmp * litFactor * sin(_phase * 6.0 + (CGFloat)i * 0.9);
+            CGFloat rx2 = rx + bounce;
+            CGFloat ry2 = ry + bounce * 0.7;
+
+            CGFloat x = CGRectGetMidX(content) + cos(angle) * rx2;
+            CGFloat y = CGRectGetMidY(content) + sin(angle) * ry2;
+
+            CGFloat dot = (1.5 + 3.2 * level) * dotScale * baseScale * (0.55 + 0.45 * litFactor);
+
+            UIColor *color;
+            if (self.haloRainbow) {
+                NSInteger ci = (i + colorShift) % 9;
+                if (ci < 0) ci += 9;
+                CGFloat hue = fmod(hues[ci] + (ci == 8 ? _phase * 0.05 : 0.0), 1.0);
+                color = [UIColor colorWithHue:hue saturation:sats[ci] brightness:1.0 alpha:1.0];
+            } else {
+                color = [self colorForBar:i];
+            }
+            color = [color colorWithAlphaComponent:baseAlpha * (0.18 + 0.82 * litFactor)];
+
             CGContextSetShadowWithColor(ctx, CGSizeZero, 7.0 * (0.5 + level), color.CGColor);
             CGContextSetFillColorWithColor(ctx, color.CGColor);
             CGContextFillEllipseInRect(ctx, CGRectMake(x - dot, y - dot, dot * 2.0, dot * 2.0));
         }
     }
 
-    // 中心小光球：亮度跟电平
-    CGFloat coreR = 2.0 + 4.0 * _haloSmoothEnergy;
+    // 中心小光球
+    CGFloat coreR = (2.0 + 4.0 * _haloSmoothEnergy) * dotScale;
     UIColor *core = [UIColor colorWithHue:fmod(0.72 + _haloSmoothEnergy * 0.2, 1.0)
-                                saturation:0.85 brightness:1.0 alpha:0.9];
+                                saturation:0.85 brightness:1.0
+                                    alpha:0.25 + 0.65 * _haloSmoothEnergy];
     CGContextSetShadowWithColor(ctx, CGSizeZero, 10.0, core.CGColor);
     CGContextSetFillColorWithColor(ctx, core.CGColor);
     CGContextFillEllipseInRect(ctx, CGRectMake(CGRectGetMidX(content) - coreR,

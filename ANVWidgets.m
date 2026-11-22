@@ -25,7 +25,7 @@ static void ANVDrawRainbowText(NSString *text, CGRect rect, CGFloat fontSize,
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     if (ctx) {
         CGContextSaveGState(ctx);
-        CGContextClipToRect(ctx, CGRectInset(rect, 2.0, 1.5));
+        CGContextClipToRect(ctx, CGRectInset(rect, 3.0, 1.0));
     }
 
     CGFloat cursor = x;
@@ -45,13 +45,13 @@ static void ANVDrawRainbowText(NSString *text, CGRect rect, CGFloat fontSize,
 }
 
 // 歌词牌 / 独立歌词条共用的「亮玻璃」胶囊：不再是黑块
-static void ANVDrawFrostedCapsule(CGContextRef ctx, CGRect rect, CGFloat hue, CGFloat radius) {
+static void ANVDrawFrostedCapsule(CGContextRef ctx, CGRect rect, CGFloat hue, CGFloat radius, CGFloat opacity) {
     UIBezierPath *cap = [UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:radius];
 
     CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
-    NSArray *colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.92].CGColor,
-                        (id)[UIColor colorWithWhite:0.96 alpha:0.80].CGColor,
-                        (id)[UIColor colorWithWhite:0.90 alpha:0.70].CGColor];
+    NSArray *colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.92 * opacity].CGColor,
+                        (id)[UIColor colorWithWhite:0.96 alpha:0.80 * opacity].CGColor,
+                        (id)[UIColor colorWithWhite:0.90 alpha:0.70 * opacity].CGColor];
     CGGradientRef grad = CGGradientCreateWithColors(space, (__bridge CFArrayRef)colors, NULL);
     CGContextSaveGState(ctx);
     CGContextSetShadowWithColor(ctx, CGSizeZero, 7.0,
@@ -162,6 +162,9 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
         _action = 0;
         _petCount = 1;
         _petSideMode = 0;
+        _bubbleW = 120.0;
+        _bubbleH = 24.0;
+        _bubbleAlpha = 0.85;
     }
     return self;
 }
@@ -277,14 +280,15 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
     }
 
     // 招牌位置：左边 / 右边 / 居中（两侧时挂中间）
-    CGFloat signW = W - side * count;
-    if (self.lyricText.length && signW > 24.0) {
-        CGFloat h = MIN(22.0, side * 0.60);
-        CGFloat x = CGRectGetMinX(rect);
-        if (mode == 0) x = CGRectGetMaxX(rect) - signW + 2.0;
-        else if (mode == 2) x = (W - signW) / 2.0;
-        else x = CGRectGetMinX(rect) - signW * 0 + 0.0;   // 左侧放条右端
-        [self drawSignInContext:ctx rect:CGRectMake(x, CGRectGetMinY(rect) - h * 0.10, signW - 2.0, h)];
+    if (self.lyricText.length) {
+        CGFloat bw = MIN(MAX(self.bubbleW, 60.0), MAX(W - 4.0, 60.0));
+        CGFloat bh = MIN(MAX(self.bubbleH, 16.0), 44.0);
+        CGFloat x = CGRectGetMaxX(rect) - bw - 2.0;
+        if (mode == 1) x = CGRectGetMinX(rect) + 2.0;
+        else if (mode == 2) x = (W - bw) / 2.0;
+        x += self.bubbleDX;
+        CGFloat y = CGRectGetMinY(rect) - bh * 0.10 + self.bubbleDY;
+        [self drawSignInContext:ctx rect:CGRectMake(x, y, bw, bh)];
     }
 
     // 走动/翻跟头占用群外空隙
@@ -406,7 +410,7 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
     CGRect board = CGRectInset(rect, 1.0, 1.0);
     board.size.height = MAX(16.0, board.size.height);
     CGFloat radius = MIN(CGRectGetHeight(board) / 2.0, 11.0);
-    ANVDrawFrostedCapsule(ctx, board, 0.75, radius);
+    ANVDrawFrostedCapsule(ctx, board, 0.75, radius, self.bubbleAlpha);
 
     UIBezierPath *tail = [UIBezierPath bezierPath];
     [tail moveToPoint:CGPointMake(CGRectGetMinX(board) + 6.0, CGRectGetMaxY(board) - 2.0)];
@@ -417,7 +421,7 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
     [tail fill];
 
     ANVDrawRainbowText(self.lyricText, board,
-                       MAX(8.0, CGRectGetHeight(board) * 0.54 * self.textScale),
+                       MAX(7.0, CGRectGetHeight(board) * 0.48 * self.textScale),
                        _phase, YES);
 }
 
@@ -708,7 +712,7 @@ static void ANVStarPath(CGContextRef ctx, CGPoint c, CGFloat s, UIColor *color) 
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     if (!ctx) return;
     CGRect board = CGRectInset(rect, 1.0, 1.0);
-    ANVDrawFrostedCapsule(ctx, board, 0.75, MIN(11.0, CGRectGetHeight(board) / 2.0));
+    ANVDrawFrostedCapsule(ctx, board, 0.75, MIN(11.0, CGRectGetHeight(board) / 2.0), 0.9);
 
     if (!self.text.length) return;
     ANVDrawRainbowText(self.text, board,

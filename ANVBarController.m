@@ -367,6 +367,20 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"举牌歌词 · %@", st.lyricEnabled ? @"开" : @"关"],
         [NSString stringWithFormat:@"歌词 %ld%% · 加", (long)lround(st.lyricScale * 100)],
         [NSString stringWithFormat:@"歌词 %ld%% · 减", (long)lround(st.lyricScale * 100)],
+        [NSString stringWithFormat:@"气泡左右 %ld · 加", (long)lround(st.bubbleDX)],
+        [NSString stringWithFormat:@"气泡左右 %ld · 减", (long)lround(st.bubbleDX)],
+        [NSString stringWithFormat:@"气泡上下 %ld · 加", (long)lround(st.bubbleDY)],
+        [NSString stringWithFormat:@"气泡上下 %ld · 减", (long)lround(st.bubbleDY)],
+        [NSString stringWithFormat:@"气泡宽 %ld · 加", (long)lround(st.bubbleW)],
+        [NSString stringWithFormat:@"气泡宽 %ld · 减", (long)lround(st.bubbleW)],
+        [NSString stringWithFormat:@"气泡高 %ld · 加", (long)lround(st.bubbleH)],
+        [NSString stringWithFormat:@"气泡高 %ld · 减", (long)lround(st.bubbleH)],
+        [NSString stringWithFormat:@"气泡透明 %ld%% · 加", (long)lround(st.bubbleAlpha * 100)],
+        [NSString stringWithFormat:@"气泡透明 %ld%% · 减", (long)lround(st.bubbleAlpha * 100)],
+        [NSString stringWithFormat:@"光环点 %ld%% · 加", (long)lround(st.haloDotScale * 100)],
+        [NSString stringWithFormat:@"光环点 %ld%% · 减", (long)lround(st.haloDotScale * 100)],
+        [NSString stringWithFormat:@"光环九色 · %@", st.haloRainbow ? @"开" : @"关"],
+        [NSString stringWithFormat:@"光环跳动 · %@", st.haloBounce ? @"开" : @"关"],
         [NSString stringWithFormat:@"麦克风频谱 · %@", st.micSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"模拟频谱 · %@", st.simulateSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"位置 · %@", st.positionLocked ? @"已锁定" : @"可拖动"],
@@ -377,6 +391,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     NSArray *tags = @[@0, @1, @2, @3, @4, @5, @6, @7, @8, @9,
                       @200, @201, @202, @203, @204, @205, @206, @207,
                       @210, @211, @212, @213, @217, @220, @221, @218, @219, @214, @215, @216,
+                      @222, @223, @224, @225, @226, @227, @228, @229, @230, @231,
+                      @232, @233, @234, @235,
                       @10, @11, @13, @14, @15];
 
     if (titles.count > 18) rowH = 30.0;
@@ -467,6 +483,41 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     NSInteger a = [ANVSettings shared].petAction;
     if (a <= 0) return @"随机";
     return [ANVPetView titleForAction:a - 1];
+}
+
+- (void)applyBubbleSettings {
+    ANVSettings *st = [ANVSettings shared];
+    if (self.petView) {
+        self.petView.bubbleDX = st.bubbleDX;
+        self.petView.bubbleDY = st.bubbleDY;
+        self.petView.bubbleW = st.bubbleW;
+        self.petView.bubbleH = st.bubbleH;
+        self.petView.bubbleAlpha = st.bubbleAlpha;
+        [self.petView setNeedsDisplay];
+    }
+    [self layoutWidgets];
+    [self hidePanel];
+    [self showPanel];
+}
+
+- (void)applyHaloSettings {
+    ANVSettings *st = [ANVSettings shared];
+    if (self.spectrumView) {
+        self.spectrumView.haloDotScale = st.haloDotScale;
+        self.spectrumView.haloRainbow = st.haloRainbow;
+        self.spectrumView.haloBounce = st.haloBounce;
+        [self.spectrumView setNeedsDisplay];
+    }
+}
+
+- (void)applyPetStyle {
+    ANVSettings *st = [ANVSettings shared];
+    if (!self.petView) return;
+    NSInteger style = st.petStyle;
+    if (style <= 0) style = (NSInteger)arc4random_uniform(5); else style -= 1;
+    self.petView.style = style;
+    self.petView.partnerStyle = (NSInteger)arc4random_uniform(5);
+    [self.petView setNeedsDisplay];
 }
 
 - (void)applyPetCount {
@@ -565,6 +616,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 7: {
             [settings saveSpectrumStyle:(settings.spectrumStyle + 1) % 18];
             self.spectrumView.style = (ANVSpectrumStyle)settings.spectrumStyle;
+        self.spectrumView.haloDotScale = settings.haloDotScale;
+        self.spectrumView.haloRainbow = settings.haloRainbow;
+        self.spectrumView.haloBounce = settings.haloBounce;
         self.spectrumView.barCount = settings.spectrumBars;
         self.spectrumView.widthRatio = settings.spectrumWidth;
         self.spectrumView.heightRatio = settings.spectrumHeight;
@@ -585,11 +639,25 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             [self showPanel];
             break;
         }
+        case 222: [settings saveBubbleDX:settings.bubbleDX + 8]; [self applyBubbleSettings]; break;
+        case 223: [settings saveBubbleDX:settings.bubbleDX - 8]; [self applyBubbleSettings]; break;
+        case 224: [settings saveBubbleDY:settings.bubbleDY - 6]; [self applyBubbleSettings]; break;
+        case 225: [settings saveBubbleDY:settings.bubbleDY + 6]; [self applyBubbleSettings]; break;
+        case 226: [settings saveBubbleW:settings.bubbleW + 12]; [self applyBubbleSettings]; break;
+        case 227: [settings saveBubbleW:settings.bubbleW - 12]; [self applyBubbleSettings]; break;
+        case 228: [settings saveBubbleH:settings.bubbleH + 2]; [self applyBubbleSettings]; break;
+        case 229: [settings saveBubbleH:settings.bubbleH - 2]; [self applyBubbleSettings]; break;
+        case 230: [settings saveBubbleAlpha:settings.bubbleAlpha + 0.1]; [self applyBubbleSettings]; break;
+        case 231: [settings saveBubbleAlpha:settings.bubbleAlpha - 0.1]; [self applyBubbleSettings]; break;
+        case 232: [settings saveHaloDotScale:settings.haloDotScale + 0.1]; [self applyHaloSettings]; break;
+        case 233: [settings saveHaloDotScale:settings.haloDotScale - 0.1]; [self applyHaloSettings]; break;
+        case 234: [settings saveHaloRainbow:!settings.haloRainbow]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
+        case 235: [settings saveHaloBounce:!settings.haloBounce]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
         case 221: [settings savePetSide:(settings.petSide + 1) % 3]; [self layoutWidgets]; [self hidePanel]; [self showPanel]; break;
         case 220: [settings savePetCount:(settings.petCount % 5) + 1]; [self applyPetCount]; [self hidePanel]; [self showPanel]; break;
         case 218: [settings savePetAction:(settings.petAction + 1) % 20]; [self applyPetAction]; [self hidePanel]; [self showPanel]; break;
         case 219: [settings saveShowOnLockScreen:!settings.showOnLockScreen]; [self updateLockVisibility]; [self hidePanel]; [self showPanel]; break;
-        case 217: [settings savePetStyle:(settings.petStyle + 1) % 6]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
+        case 217: [settings savePetStyle:(settings.petStyle + 1) % 6]; [self applyPetStyle]; [self hidePanel]; [self showPanel]; break;
         case 210: [settings saveBarOrientation:(settings.barOrientation + 1) % 3]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 211: [settings savePetEnabled:!settings.petEnabled]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 212: [settings savePetScale:settings.petScale + 0.1]; [self applyWidgetSettings]; [self hidePanel]; [self showPanel]; break;
@@ -1059,7 +1127,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     petSide = MAX(petSide, 18.0);
 
     CGFloat lyricH = MIN(24.0, MAX(16.0, 20.0 * st.lyricScale));
-    CGFloat lyricW = MIN(screenSz.width * 0.46, MAX(64.0, 108.0 * st.lyricScale));
+    CGFloat lyricW = MIN(screenSz.width * 0.80, MAX(60.0, st.bubbleW));
     NSString *line = st.lyricEnabled ? [self currentLyricLine] : nil;
     BOOL onLeftHalf = (CGRectGetMidX(bar) < screenSz.width / 2.0);
 
@@ -1084,6 +1152,11 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         self.petView.textScale = st.lyricScale;
         self.petView.petCount = petCount;
         self.petView.petSideMode = sideMode;
+        self.petView.bubbleDX = st.bubbleDX;
+        self.petView.bubbleDY = st.bubbleDY;
+        self.petView.bubbleW = st.bubbleW;
+        self.petView.bubbleH = st.bubbleH;
+        self.petView.bubbleAlpha = st.bubbleAlpha;
         self.petView.lyricText = line;
 
         CGPoint center;

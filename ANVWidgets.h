@@ -13,6 +13,12 @@
 @property (nonatomic, assign) NSInteger petCount;
 /// 站位：0 条左边 1 条右边 2 两侧同时
 @property (nonatomic, assign) NSInteger petSideMode;
+/// 举牌气泡：宽 / 高 / 左右偏移 / 上下偏移 / 背景不透明度
+@property (nonatomic, assign) CGFloat bubbleW;
+@property (nonatomic, assign) CGFloat bubbleH;
+@property (nonatomic, assign) CGFloat bubbleDX;
+@property (nonatomic, assign) CGFloat bubbleDY;
+@property (nonatomic, assign) CGFloat bubbleAlpha;
 /// 动作：0 发呆 1 点头 2 跳舞 3 荡秋千 4 打架 5 谈恋爱 6 唱歌 7 招手 8 转圈
 ///       9 睡觉 10 蹦跳 11 甩尾巴 12 送花 13 打滚 14 吹泡泡 15 星星环绕 16 爱心发射
 @property (nonatomic, assign) NSInteger action;

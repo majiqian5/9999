@@ -41,6 +41,14 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 @property (nonatomic, readonly) BOOL showOnLockScreen;
 @property (nonatomic, readonly) BOOL lyricEnabled;
 @property (nonatomic, readonly) CGFloat lyricScale;
+@property (nonatomic, readonly) CGFloat bubbleDX;       // 气泡左右偏移（点）
+@property (nonatomic, readonly) CGFloat bubbleDY;       // 气泡上下偏移（点）
+@property (nonatomic, readonly) CGFloat bubbleW;        // 气泡宽
+@property (nonatomic, readonly) CGFloat bubbleH;        // 气泡高
+@property (nonatomic, readonly) CGFloat bubbleAlpha;    // 气泡背景不透明度
+@property (nonatomic, readonly) CGFloat haloDotScale;   // 光环点大小 0.6~2.0
+@property (nonatomic, readonly) BOOL haloRainbow;       // 九色彩虹
+@property (nonatomic, readonly) BOOL haloBounce;        // 跳动/弹跳
 @property (nonatomic, readonly) CGFloat spectrumWidth;     // 频谱横占比 0.2~1.0
 @property (nonatomic, readonly) CGFloat spectrumHeight;    // 频谱高占比 0.2~1.0
 @property (nonatomic, readonly) NSInteger spectrumBars;    // 柱子数量 4~24
@@ -68,6 +76,14 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 - (void)saveShowOnLockScreen:(BOOL)v;
 - (void)saveLyricEnabled:(BOOL)on;
 - (void)saveLyricScale:(CGFloat)v;
+- (void)saveBubbleDX:(CGFloat)v;
+- (void)saveBubbleDY:(CGFloat)v;
+- (void)saveBubbleW:(CGFloat)v;
+- (void)saveBubbleH:(CGFloat)v;
+- (void)saveBubbleAlpha:(CGFloat)v;
+- (void)saveHaloDotScale:(CGFloat)v;
+- (void)saveHaloRainbow:(BOOL)v;
+- (void)saveHaloBounce:(BOOL)v;
 - (void)saveSpectrumWidth:(CGFloat)v;
 - (void)saveSpectrumHeight:(CGFloat)v;
 - (void)saveSpectrumBars:(NSInteger)v;

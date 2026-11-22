@@ -36,6 +36,11 @@ typedef NS_ENUM(NSInteger, ANVSpectrumStyle) {
 /// 单根柱子的粗细（占每个槽位的比例）0.15~1.0
 @property (nonatomic, assign) CGFloat thickness;
 
+/// 光环（旋转光环样式）专用：点大小倍数 / 九色彩虹 / 跳动
+@property (nonatomic, assign) CGFloat haloDotScale;
+@property (nonatomic, assign) BOOL haloRainbow;
+@property (nonatomic, assign) BOOL haloBounce;
+
 - (void)advancePhase:(CGFloat)delta;
 - (void)updateLevels:(const float *)levels count:(NSUInteger)count;
 @end

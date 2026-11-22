@@ -1,6 +1,6 @@
 Package: com.doubao.andronavbar
 Name: AndroNavBar
-Version: 1.5.2
+Version: 1.5.3
 Architecture: iphoneos-arm64
 Description: 安卓风格霓虹四键导航条（返回 / 主屏幕 / 后台 / 前进），rootless 版本，支持 iOS 15–16。
 Maintainer: Doubao
