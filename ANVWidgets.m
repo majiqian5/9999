@@ -161,6 +161,7 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
         _partnerStyle = 1;
         _action = 0;
         _petCount = 1;
+        _petSideMode = 0;
     }
     return self;
 }
@@ -192,6 +193,11 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
 
 - (void)setPartnerStyle:(NSInteger)partnerStyle {
     _partnerStyle = MIN(MAX(partnerStyle, 0), 4);
+    [self setNeedsDisplay];
+}
+
+- (void)setPetSideMode:(NSInteger)petSideMode {
+    _petSideMode = MIN(MAX(petSideMode, 0), 2);
     [self setNeedsDisplay];
 }
 
@@ -256,68 +262,80 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
     NSInteger count = MIN(MAX(self.petCount, 1), 5);
     CGFloat side = CGRectGetHeight(rect);
     if (side < 12.0) return;
+    CGFloat W = CGRectGetWidth(rect);
+    NSInteger mode = MIN(MAX(self.petSideMode, 0), 2);
 
-    NSInteger act = MIN(MAX(_action, 0), 18);
-    BOOL twoByTwo = (act == 4 || act == 5 || act == 12);
-    CGFloat herdW = side * count;
-    CGFloat signW = 0.0;
-    if (!twoByTwo && self.lyricText.length && CGRectGetWidth(rect) > herdW + 24.0) {
-        signW = CGRectGetWidth(rect) - herdW;
+    NSInteger leftN = count, rightN = 0;
+    CGFloat leftX = CGRectGetMinX(rect), rightX = 0;
+    if (mode == 2) {
+        leftN = (count + 1) / 2;
+        rightN = count - leftN;
+        rightX = CGRectGetMaxX(rect) - side * rightN;
+    } else if (mode == 1) {
+        leftN = 0; rightN = count;
+        rightX = CGRectGetMaxX(rect) - side * count;
     }
 
-    // 走动 / 翻跟头：整群在条顶上来回溜达（给多留的那段空间用上）
-    CGFloat walkRoom = MAX(0.0, CGRectGetWidth(rect) - herdW - signW);
+    // 招牌位置：左边 / 右边 / 居中（两侧时挂中间）
+    CGFloat signW = W - side * count;
+    if (self.lyricText.length && signW > 24.0) {
+        CGFloat h = MIN(22.0, side * 0.60);
+        CGFloat x = CGRectGetMinX(rect);
+        if (mode == 0) x = CGRectGetMaxX(rect) - signW + 2.0;
+        else if (mode == 2) x = (W - signW) / 2.0;
+        else x = CGRectGetMinX(rect) - signW * 0 + 0.0;   // 左侧放条右端
+        [self drawSignInContext:ctx rect:CGRectMake(x, CGRectGetMinY(rect) - h * 0.10, signW - 2.0, h)];
+    }
+
+    // 走动/翻跟头占用群外空隙
+    CGFloat walkRoom = MAX(0.0, W - side * count) * 0.5;
     CGFloat walkX = 0.0;
-    if (act == 17) {
-        walkX = (0.5 - 0.5 * cos(_actionPhase * 1.1)) * walkRoom;
-    } else if (act == 18) {
-        walkX = (0.5 - 0.5 * cos(_actionPhase * 1.8)) * walkRoom;
+    if (_action == 17) walkX = (0.5 - 0.5 * cos(_actionPhase * 1.1)) * walkRoom;
+    else if (_action == 18) walkX = (0.5 - 0.5 * cos(_actionPhase * 1.8)) * walkRoom;
+
+    if (leftN > 0) {
+        [self drawGroupInContext:ctx startX:leftX walkX:walkX count:leftN
+                          origin:0 side:side bottom:CGRectGetMaxY(rect)];
+    }
+    if (rightN > 0) {
+        [self drawGroupInContext:ctx startX:rightX walkX:-walkX count:rightN
+                          origin:leftN side:side bottom:CGRectGetMaxY(rect)];
     }
 
-    // 招牌：一只的时候挂在右边；多只的时候在宠物之间「接力」
-    if (count <= 1) {
-        if (signW > 20.0) {
-            CGRect signRect = CGRectMake(CGRectGetMaxX(rect) - signW + side * 0.04,
-                                         CGRectGetMaxY(rect) - side * 0.80,
-                                         signW - side * 0.08,
-                                         MIN(24.0, side * 0.60));
-            [self drawSignInContext:ctx rect:signRect];
-        }
-    } else if (self.lyricText.length) {
-        // 每 3.5 秒把牌子传给下一只，交接的最后 15% 时间做一段飞行
-        CGFloat span = 3.5;
-        CGFloat seq = _actionPhase / span;
-        NSInteger holder = ((NSInteger)floor(seq)) % count;
-        if (holder < 0) holder = 0;
-        CGFloat frac = seq - floor(seq);
-        CGFloat fly = 0.0;
-        if (frac > 0.85) fly = (frac - 0.85) / 0.15;
-        NSInteger next = (holder + 1) % count;
-
-        CGFloat bubbleW = MIN(side * 1.9, CGRectGetWidth(rect) - side * 0.2);
-        CGFloat bubbleH = MIN(22.0, side * 0.60);
-        CGFloat holderX = CGRectGetMinX(rect) + (CGFloat)holder * side + walkX + side / 2.0;
-        CGFloat nextX = CGRectGetMinX(rect) + (CGFloat)next * side + walkX + side / 2.0;
-        CGFloat cx = holderX + (nextX - holderX) * fly;
-        // 交接时飞起来一点点
-        CGFloat lift = sin(fly * (CGFloat)M_PI) * side * 0.28;
-        CGRect signRect = CGRectMake(cx - bubbleW / 2.0,
-                                     CGRectGetMinY(rect) - bubbleH * 0.15 - lift,
-                                     bubbleW, bubbleH);
-        [self drawSignInContext:ctx rect:signRect];
+    // 气氛装饰跟着整体
+    CGRect herd = CGRectMake(CGRectGetMinX(rect) + walkX, CGRectGetMinY(rect), side * count, side);
+    switch (_action) {
+        case 2:
+        case 6:  [self drawNotesAround:ctx rect:herd]; break;
+        case 5:
+        case 16: [self drawHeartsAround:ctx rect:herd]; break;
+        case 9:  [self drawZZZ:ctx rect:herd]; break;
+        case 14: [self drawBubblesAround:ctx rect:herd]; break;
+        case 15: [self drawStarsOrbit:ctx rect:herd]; break;
+        default: break;
     }
+}
 
-    for (NSInteger i = 0; i < count; i++) {
-        CGFloat t = _phase + (CGFloat)i * 0.55;
-        CGFloat at = _actionPhase + (CGFloat)i * 0.45;
+/// 画一群宠物（index 从 origin 开始编号，保证每只造型/相位不同）
+- (void)drawGroupInContext:(CGContextRef)ctx startX:(CGFloat)startX walkX:(CGFloat)walkX
+                      count:(NSInteger)n origin:(NSInteger)origin
+                       side:(CGFloat)side bottom:(CGFloat)bottom {
+    NSInteger act = MIN(MAX(_action, 0), 18);
+    for (NSInteger k = 0; k < n; k++) {
+        NSInteger gi = origin + k;
+        CGFloat t = _phase + (CGFloat)gi * 0.55;
+        CGFloat at = _actionPhase + (CGFloat)gi * 0.45;
         CGFloat dx = walkX, dy = 0, rot = 0, sy = 1.0;
-        BOOL eyesClosed = NO, mouthOpen = NO;
-        BOOL pivotTop = NO;
+        BOOL eyesClosed = NO, mouthOpen = NO, pivotTop = NO;
+
+        // 跟音乐互动：有节奏时整群一起蹦一下
+        if (_energy > 0.05) {
+            CGFloat beat = MAX(0.0, sin(_phase * (4.0 + _energy * 3.0) + (CGFloat)gi * 0.9));
+            dy -= beat * side * 0.10 * (0.3 + _energy);
+        }
 
         switch (act) {
-            case 1:
-                dy -= fabs(sin(t * 4.2)) * side * 0.05 * (0.4 + _energy);
-                break;
+            case 1: dy -= fabs(sin(t * 4.2)) * side * 0.05 * (0.4 + _energy); break;
             case 2: {
                 CGFloat beat = sin(t * (5.0 + _energy * 4.0));
                 dx += beat * side * 0.06;
@@ -327,82 +345,42 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
                 mouthOpen = YES;
                 break;
             }
-            case 3:                       // 荡秋千：吊在条顶上摆
-                rot = sin(at * 1.5) * 0.55;
-                pivotTop = YES;
-                break;
-            case 4:
-                dx += sin(at * 8.0) * side * 0.10;
-                rot = sin(at * 8.0) * 0.12;
-                break;
-            case 5:
-                dx += (i % 2 == 0 ? 1.0 : -1.0) * side * 0.04;
-                rot = (i % 2 == 0 ? 1.0 : -1.0) * 0.10;
-                break;
-            case 6:
-                mouthOpen = YES;
-                rot = sin(t * 2.0) * 0.04;
-                break;
-            case 7:
-                rot = sin(t * 6.0 + (CGFloat)i) * 0.10;
-                break;
-            case 8:
-                rot = sin(at * 2.2 + (CGFloat)i) * 0.30;
-                break;
-            case 9:
-                eyesClosed = YES;
-                sy = 1.0 - (0.5 + 0.5 * sin(t * 1.2)) * 0.03;
-                break;
+            case 3: rot = sin(at * 1.5) * 0.55; pivotTop = YES; break;
+            case 4: dx += sin(at * 8.0) * side * 0.10; rot = sin(at * 8.0) * 0.12; break;
+            case 5: rot = (gi % 2 == 0 ? 1.0 : -1.0) * 0.10; break;
+            case 6: mouthOpen = YES; rot = sin(t * 2.0) * 0.04; break;
+            case 7: rot = sin(t * 6.0 + (CGFloat)gi) * 0.10; break;
+            case 8: rot = sin(at * 2.2 + (CGFloat)gi) * 0.30; break;
+            case 9: eyesClosed = YES; sy = 1.0 - (0.5 + 0.5 * sin(t * 1.2)) * 0.03; break;
             case 10: {
-                CGFloat j = MAX(0.0, sin(at * 4.0 + (CGFloat)i));
+                CGFloat j = MAX(0.0, sin(at * 4.0 + (CGFloat)gi));
                 dy -= j * side * 0.18;
                 sy = 1.0 + j * 0.04;
                 break;
             }
-            case 11:
-                rot = sin(t * 7.0) * 0.07;
-                break;
-            case 12:
-                rot = (i % 2 == 0 ? -0.14 : 0.10);
-                break;
-            case 13:
-                rot = at * 2.0;
-                pivotTop = YES;
-                break;
-            case 15:
-                rot = sin(t * 1.6 + (CGFloat)i) * 0.10;
-                break;
-            case 16:
-                dy -= fabs(sin(at * 2.2 + (CGFloat)i)) * side * 0.10;
-                break;
-            case 17:                       // 走动：一步一步挪，脚下带点起伏
-                dy -= fabs(sin(at * 5.5 + (CGFloat)i)) * side * 0.06;
-                rot = sin(at * 5.5 + (CGFloat)i) * 0.05;
-                break;
-            case 18:                       // 翻跟头：整圈翻
-                rot = at * 4.4;
-                pivotTop = NO;
-                break;
-            default:
-                dy -= fabs(sin(t * 3.0)) * 2.0 * (0.35 + _energy);
-                break;
+            case 11: rot = sin(t * 7.0) * 0.07; break;
+            case 12: rot = (gi % 2 == 0 ? -0.14 : 0.10); break;
+            case 13: rot = at * 2.0; pivotTop = YES; break;
+            case 15: rot = sin(t * 1.6 + (CGFloat)gi) * 0.10; break;
+            case 16: dy -= fabs(sin(at * 2.2 + (CGFloat)gi)) * side * 0.10; break;
+            case 17: dy -= fabs(sin(at * 5.5 + (CGFloat)gi)) * side * 0.06;
+                     rot = sin(at * 5.5 + (CGFloat)gi) * 0.05; break;
+            case 18: rot = at * 4.4; break;
+            default: dy -= fabs(sin(t * 3.0)) * 2.0 * (0.35 + _energy); break;
         }
 
-        CGRect petRect = CGRectMake(CGRectGetMinX(rect) + (CGFloat)i * side + dx,
-                                    CGRectGetMaxY(rect) - side * sy + dy,
+        CGRect petRect = CGRectMake(startX + (CGFloat)k * side + dx, bottom - side * sy + dy,
                                     side, side * sy);
 
-        // 秋千的吊绳（在宠物后面画）
         if (act == 3) {
-            CGPoint anchor = CGPointMake(CGRectGetMidX(petRect), CGRectGetMinY(rect) - side * 0.06);
-            CGPoint seat = CGPointMake(CGRectGetMidX(petRect), CGRectGetMaxY(petRect) - side * 0.78);
+            CGPoint anchor = CGPointMake(CGRectGetMidX(petRect), CGRectGetMinY(petRect) - side * 0.20);
+            CGPoint seat = CGPointMake(CGRectGetMidX(petRect), CGRectGetMaxY(petRect) - side * 0.80);
             CGContextSaveGState(ctx);
-            CGContextSetStrokeColorWithColor(ctx, [UIColor colorWithWhite:1.0 alpha:0.30].CGColor);
+            CGContextSetStrokeColorWithColor(ctx, [UIColor colorWithWhite:1.0 alpha:0.35].CGColor);
             CGContextSetLineWidth(ctx, 1.0);
             for (NSInteger sgn = -1; sgn <= 1; sgn += 2) {
-                CGPoint hook = CGPointMake(seat.x + sgn * side * 0.22, seat.y);
                 CGContextMoveToPoint(ctx, anchor.x, anchor.y);
-                CGContextAddLineToPoint(ctx, hook.x, hook.y);
+                CGContextAddLineToPoint(ctx, seat.x + sgn * side * 0.22, seat.y);
                 CGContextStrokePath(ctx);
             }
             CGContextRestoreGState(ctx);
@@ -417,22 +395,10 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
             CGContextTranslateCTM(ctx, -pv.x, -pv.y);
         }
         [self drawPetInContext:ctx rect:petRect
-                          style:((self.style + i) % 5)
+                          style:((self.style + gi) % 5)
                       eyeClosed:eyesClosed
                       mouthOpen:mouthOpen];
         CGContextRestoreGState(ctx);
-    }
-
-    CGRect herd = CGRectMake(CGRectGetMinX(rect) + walkX, CGRectGetMinY(rect), herdW, side);
-    switch (act) {
-        case 2:
-        case 6:  [self drawNotesAround:ctx rect:herd]; break;
-        case 5:
-        case 16: [self drawHeartsAround:ctx rect:herd]; break;
-        case 9:  [self drawZZZ:ctx rect:herd]; break;
-        case 14: [self drawBubblesAround:ctx rect:herd]; break;
-        case 15: [self drawStarsOrbit:ctx rect:herd]; break;
-        default: break;
     }
 }
 

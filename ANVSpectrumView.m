@@ -95,8 +95,13 @@
     // 平滑一下，避免电平抖一下光环就抽一下
     _haloSmoothEnergy += (energy - _haloSmoothEnergy) * MIN(1.0, delta * 5.0);
 
-    CGFloat target = 0.25 + 5.4 * _haloSmoothEnergy;     // rad/s，最慢 0.25 最快 5.6
+    // 没声音就彻底停：转速直接归零，不再「安静时慢慢飘」
+    CGFloat target = 0.0;
+    if (_haloSmoothEnergy > 0.02) {
+        target = 0.35 + 6.0 * _haloSmoothEnergy;         // rad/s，响的时候最多约 6.3
+    }
     _haloSpeed += (target - _haloSpeed) * MIN(1.0, delta * 4.0);
+    if (_haloSpeed < 0.05) _haloSpeed = 0.0;             // 停住，不再微转
 
     if (_haloDir == 0) {
         _haloDir = 1;
@@ -445,6 +450,15 @@
             CGFloat angle = _haloAngle + (CGFloat)i / (CGFloat)n * 2.0 * (CGFloat)M_PI
                             - (CGFloat)_haloDir * trail;
             CGFloat level = MAX([self levelAtIndex:(i % kANVSrcBars)], 0.12f);
+            // 逐个点亮：电平越高，亮的点越多（从第一个点开始依次亮起）
+            CGFloat litPos = _haloSmoothEnergy * (CGFloat)n;
+            CGFloat litFactor = 0.0;
+            if ((CGFloat)i < litPos - 1.0) litFactor = 1.0;
+            else if ((CGFloat)i < litPos) litFactor = litPos - (CGFloat)i;
+            if (litFactor < 0.0) litFactor = 0.0;
+            if (litFactor > 1.0) litFactor = 1.0;
+            alpha *= 0.18 + 0.82 * litFactor;
+            scale *= 0.55 + 0.45 * litFactor;
             CGFloat x = CGRectGetMidX(content) + cos(angle) * rx;
             CGFloat y = CGRectGetMidY(content) + sin(angle) * ry;
             CGFloat dot = (1.5 + 3.2 * level) * scale;

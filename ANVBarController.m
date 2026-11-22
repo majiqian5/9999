@@ -270,6 +270,10 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case ANVKeyActionHome: return @"主屏幕";
         case ANVKeyActionRecents: return @"后台";
         case ANVKeyActionForward: return @"前进";
+        case ANVKeyActionPrevious: return @"上一曲";
+        case ANVKeyActionPlay: return @"播放";
+        case ANVKeyActionPause: return @"暂停";
+        case ANVKeyActionNext: return @"下一曲";
         case ANVKeyActionNone: return @"无动作";
         default: return @"返回";
     }
@@ -357,7 +361,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"宠物 %ld%% · 减", (long)lround(st.petScale * 100)],
         [NSString stringWithFormat:@"宠物造型 · %@", [self petStyleTitle]],
         [NSString stringWithFormat:@"宠物数量 · %ld 只", (long)[ANVSettings shared].petCount],
-        [NSString stringWithFormat:@"宠物位置 · %@", ([ANVSettings shared].petOnRight ? @"右侧" : @"左侧")],
+        [NSString stringWithFormat:@"宠物位置 · %@", [self petSideTitle]],
         [NSString stringWithFormat:@"动作 · %@", [self petActionTitle]],
         [NSString stringWithFormat:@"锁屏显示 · %@", ([ANVSettings shared].showOnLockScreen ? @"开" : @"关")],
         [NSString stringWithFormat:@"举牌歌词 · %@", st.lyricEnabled ? @"开" : @"关"],
@@ -492,6 +496,14 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     self.petView.partnerStyle = (NSInteger)arc4random_uniform(3);
 }
 
+- (NSString *)petSideTitle {
+    switch ([ANVSettings shared].petSide) {
+        case 1: return @"右侧";
+        case 2: return @"两侧";
+        default: return @"左侧";
+    }
+}
+
 - (NSString *)petStyleTitle {
     NSInteger s = [ANVSettings shared].petStyle;
     if (s <= 0) return @"随机";
@@ -540,7 +552,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     NSInteger index = row.tag;
 
     if (index <= 3) {
-        NSInteger next = ([[ANVSettings shared] actionForSlot:index] + 1) % 5;
+        NSInteger next = ([[ANVSettings shared] actionForSlot:index] + 1) % 9;
         [settings saveAction:(ANVKeyAction)next forSlot:index];
         [self hidePanel];
         [self showPanel];
@@ -573,7 +585,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             [self showPanel];
             break;
         }
-        case 221: [settings savePetOnRight:!settings.petOnRight]; [self layoutWidgets]; [self hidePanel]; [self showPanel]; break;
+        case 221: [settings savePetSide:(settings.petSide + 1) % 3]; [self layoutWidgets]; [self hidePanel]; [self showPanel]; break;
         case 220: [settings savePetCount:(settings.petCount % 5) + 1]; [self applyPetCount]; [self hidePanel]; [self showPanel]; break;
         case 218: [settings savePetAction:(settings.petAction + 1) % 20]; [self applyPetAction]; [self hidePanel]; [self showPanel]; break;
         case 219: [settings saveShowOnLockScreen:!settings.showOnLockScreen]; [self updateLockVisibility]; [self hidePanel]; [self showPanel]; break;
@@ -1053,19 +1065,25 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     if (self.petView) {
         CGFloat signW = line.length ? lyricW : 0.0;
+        NSInteger sideMode = (NSInteger)st.petSide;
+        BOOL bothSides = (sideMode == 2);
         CGFloat walkExtra = (vertical ? 0.0 : petSide * 0.9);
-        CGFloat petW = petSide * petCount + signW + walkExtra;
+        // 两侧时整条铺满（左右两端各站一群），单侧时按群宽走
+        CGFloat petW = bothSides ? screenSz.width * 0.94
+                                 : (petSide * petCount + signW + walkExtra);
         // 宠物 + 牌子最多占屏幕 88%，超了就按比例压小
         CGFloat maxW = screenSz.width * 0.88;
         if (petW > maxW) {
             CGFloat k = maxW / petW;
             petSide *= k;
             signW *= k;
-            petW = petSide * petCount + signW + walkExtra * k;
+            petW = bothSides ? screenSz.width * 0.94
+                             : (petSide * petCount + signW + walkExtra * k);
         }
         self.petView.sizeScale = st.petScale;
         self.petView.textScale = st.lyricScale;
         self.petView.petCount = petCount;
+        self.petView.petSideMode = sideMode;
         self.petView.lyricText = line;
 
         CGPoint center;
@@ -1074,7 +1092,10 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                                     : CGRectGetMinX(bar) - petW / 2.0 - 3.0;
             cx = MIN(MAX(cx, petW / 2.0 + 2.0), screenSz.width - petW / 2.0 - 2.0);
             center = CGPointMake(cx, CGRectGetMidY(bar));
-        } else if (st.petOnRight) {
+        } else if (bothSides) {
+            // 两侧同时显示：宠物视图直接盖住整条，左右各一群
+            center = CGPointMake(screenSz.width / 2.0, CGRectGetMinY(bar) - petSide / 2.0 - 2.0);
+        } else if (sideMode == 1) {
             // 放在条的右侧
             CGFloat cx = CGRectGetMaxX(bar) - petW / 2.0;
             cx = MIN(MAX(cx, petW / 2.0 + 2.0), screenSz.width - petW / 2.0 - 2.0);
@@ -1254,48 +1275,7 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
 }
 
 - (void)glyphTapped:(UIButton *)sender {
-    NSInteger slot = sender.tag;
-    if (!self.lastTap) self.lastTap = [NSMutableDictionary dictionary];
-    if (!self.tapGen) self.tapGen = [NSMutableDictionary dictionary];
-
-    CFTimeInterval now = CACurrentMediaTime();
-    CFTimeInterval last = [[self.lastTap objectForKey:@(slot)] doubleValue];
-    NSInteger gen = [[self.tapGen objectForKey:@(slot)] integerValue] + 1;
-    [self.tapGen setObject:@(gen) forKey:@(slot)];
-    [self.lastTap setObject:@(now) forKey:@(slot)];
-
-    if (now - last < 0.34) {
-        // 双击：键1 上一曲 / 键2 播放 / 键3 暂停 / 键4 下一曲
-        [self.tapGen setObject:@(gen + 1) forKey:@(slot)];   // 让待执行的单击失效
-        [self performMediaForSlot:slot];
-        return;
-    }
-
-    // 单击延后 0.34s 执行，给双击留出窗口
-    __weak typeof(self) weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.34 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        __strong typeof(weakSelf) self2 = weakSelf;
-        if (!self2) return;
-        if ([[self2.tapGen objectForKey:@(slot)] integerValue] != gen) return;   // 期间被双击了
-        [self2 performSlotAction:slot];
-    });
-}
-
-- (void)performMediaForSlot:(NSInteger)slot {
-    BOOL ok = NO;
-    switch (slot) {
-        case 0: ok = [ANVActions mediaPrevious]; break;
-        case 1: ok = [ANVActions mediaPlay]; break;
-        case 2: ok = [ANVActions mediaPause]; break;
-        default: ok = [ANVActions mediaNext]; break;
-    }
-    [ANVActions note:[NSString stringWithFormat:@"dbltap slot=%ld ok=%d", (long)slot, ok]];
-    if ([ANVSettings shared].haptics) {
-        UIImpactFeedbackGenerator *generator =
-            [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
-        [generator impactOccurred];
-    }
+    [self performSlotAction:sender.tag];
 }
 
 - (void)performSlotAction:(NSInteger)slot {
@@ -1308,6 +1288,25 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
                        dispatch_get_main_queue(), ^{
             [glyph setGlowHighlighted:NO];
         });
+        return;
+    }
+
+    // 音乐动作：直接发 MediaRemote 指令，不走到 app 切换里
+    if (action == ANVKeyActionPrevious || action == ANVKeyActionPlay ||
+        action == ANVKeyActionPause || action == ANVKeyActionNext) {
+        BOOL okMedia = NO;
+        switch (action) {
+            case ANVKeyActionPrevious: okMedia = [ANVActions mediaPrevious]; break;
+            case ANVKeyActionPlay: okMedia = [ANVActions mediaPlay]; break;
+            case ANVKeyActionPause: okMedia = [ANVActions mediaPause]; break;
+            default: okMedia = [ANVActions mediaNext]; break;
+        }
+        [ANVActions note:[NSString stringWithFormat:@"key slot=%ld media ok=%d", (long)slot, okMedia]];
+        if ([ANVSettings shared].haptics) {
+            UIImpactFeedbackGenerator *g =
+                [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleMedium];
+            [g impactOccurred];
+        }
         return;
     }
 
