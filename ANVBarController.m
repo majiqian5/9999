@@ -354,6 +354,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"宠物 %ld%% · 加", (long)lround(st.petScale * 100)],
         [NSString stringWithFormat:@"宠物 %ld%% · 减", (long)lround(st.petScale * 100)],
         [NSString stringWithFormat:@"宠物造型 · %@", [self petStyleTitle]],
+        [NSString stringWithFormat:@"宠物数量 · %ld 只", (long)[ANVSettings shared].petCount],
         [NSString stringWithFormat:@"动作 · %@", [self petActionTitle]],
         [NSString stringWithFormat:@"锁屏显示 · %@", ([ANVSettings shared].showOnLockScreen ? @"开" : @"关")],
         [NSString stringWithFormat:@"举牌歌词 · %@", st.lyricEnabled ? @"开" : @"关"],
@@ -368,7 +369,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     NSArray *tags = @[@0, @1, @2, @3, @4, @5, @6, @7, @8, @9,
                       @200, @201, @202, @203, @204, @205, @206, @207,
-                      @210, @211, @212, @213, @217, @218, @219, @214, @215, @216,
+                      @210, @211, @212, @213, @217, @220, @218, @219, @214, @215, @216,
                       @10, @11, @13, @14, @15];
 
     if (titles.count > 18) rowH = 30.0;
@@ -461,6 +462,11 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     return [ANVPetView titleForAction:a - 1];
 }
 
+- (void)applyPetCount {
+    if (self.petView) self.petView.petCount = [ANVSettings shared].petCount;
+    [self layoutWidgets];
+}
+
 - (void)applyPetAction {
     NSInteger a = [ANVSettings shared].petAction;
     if (!self.petView) return;
@@ -484,12 +490,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 }
 
 - (NSString *)petStyleTitle {
-    switch ([ANVSettings shared].petStyle) {
-        case 1: return @"小猫";
-        case 2: return @"小兔";
-        case 3: return @"小熊";
-        default: return @"随机";
-    }
+    NSInteger s = [ANVSettings shared].petStyle;
+    if (s <= 0) return @"随机";
+    return [ANVPetView titleForStyle:s - 1];
 }
 
 - (NSString *)orientationTitle {
@@ -567,9 +570,10 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             [self showPanel];
             break;
         }
+        case 220: [settings savePetCount:(settings.petCount % 5) + 1]; [self applyPetCount]; [self hidePanel]; [self showPanel]; break;
         case 218: [settings savePetAction:(settings.petAction + 1) % 18]; [self applyPetAction]; [self hidePanel]; [self showPanel]; break;
         case 219: [settings saveShowOnLockScreen:!settings.showOnLockScreen]; [self updateLockVisibility]; [self hidePanel]; [self showPanel]; break;
-        case 217: [settings savePetStyle:(settings.petStyle + 1) % 4]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
+        case 217: [settings savePetStyle:(settings.petStyle + 1) % 6]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 210: [settings saveBarOrientation:(settings.barOrientation + 1) % 3]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 211: [settings savePetEnabled:!settings.petEnabled]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 212: [settings savePetScale:settings.petScale + 0.1]; [self applyWidgetSettings]; [self hidePanel]; [self showPanel]; break;
@@ -950,9 +954,11 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     if (st.petEnabled) {
         self.petView = [[ANVPetView alloc] initWithFrame:CGRectMake(0, 0, 40, 40)];
         self.petView.sizeScale = st.petScale;
+        // 0 随机（5 只里挑一只当主宠，其余按顺序接着出）
         NSInteger style = st.petStyle;
-        if (style == 0) style = 1 + (NSInteger)(arc4random_uniform(3));   // 每次重建随机挑一只
-        self.petView.style = style - 1;
+        if (style == 0) style = (NSInteger)arc4random_uniform(5); else style -= 1;
+        self.petView.style = style;
+        self.petView.petCount = st.petCount;
         self.petView.partnerStyle = (NSInteger)arc4random_uniform(3);
         NSInteger pa = st.petAction;
         self.petView.action = (pa <= 0) ? (NSInteger)arc4random_uniform(17) : (pa - 1);
@@ -1031,6 +1037,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     CGFloat thickness = vertical ? bar.size.width : bar.size.height;
 
     // 宠物整体压小：原来 1.15 倍条厚，屏幕上显得又大又顶到边
+    NSInteger petCount = MIN(MAX((NSInteger)st.petCount, 1), 5);
     CGFloat petSide = thickness * 0.92 * st.petScale;
     petSide = MIN(petSide, MIN(46.0, thickness * 1.0));
     petSide = MAX(petSide, 18.0);
@@ -1042,17 +1049,18 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     if (self.petView) {
         CGFloat signW = line.length ? lyricW : 0.0;
-        CGFloat petW = petSide + signW;
+        CGFloat petW = petSide * petCount + signW;
         // 宠物 + 牌子最多占屏幕 88%，超了就按比例压小
         CGFloat maxW = screenSz.width * 0.88;
         if (petW > maxW) {
             CGFloat k = maxW / petW;
             petSide *= k;
             signW *= k;
-            petW = petSide + signW;
+            petW = petSide * petCount + signW;
         }
         self.petView.sizeScale = st.petScale;
         self.petView.textScale = st.lyricScale;
+        self.petView.petCount = petCount;
         self.petView.lyricText = line;
 
         CGPoint center;

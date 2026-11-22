@@ -44,6 +44,7 @@ static void ANVSetPref(NSString *key, id value) {
 @property (nonatomic, assign) CGFloat petScale;
 @property (nonatomic, assign) NSInteger petStyle;
 @property (nonatomic, assign) NSInteger petAction;
+@property (nonatomic, assign) NSInteger petCount;
 @property (nonatomic, assign) BOOL showOnLockScreen;
 @property (nonatomic, assign) BOOL lyricEnabled;
 @property (nonatomic, assign) CGFloat lyricScale;
@@ -144,6 +145,8 @@ static void ANVSetPref(NSString *key, id value) {
     self.petScale = pets ? [pets doubleValue] : 1.0;
     id petst = ANVCopyPref(@"PetStyle");
     self.petStyle = petst ? [petst integerValue] : 0;
+    id pcnt = ANVCopyPref(@"PetCount");
+    self.petCount = pcnt ? MIN(MAX([pcnt integerValue], 1), 5) : 1;
     id pact = ANVCopyPref(@"PetAction");
     self.petAction = pact ? [pact integerValue] : 0;
     id lshow = ANVCopyPref(@"ShowOnLockScreen");
@@ -210,6 +213,11 @@ static void ANVSetPref(NSString *key, id value) {
 - (void)savePetEnabled:(BOOL)on {
     self.petEnabled = on;
     ANVSetPref(@"PetEnabled", @(on));
+}
+
+- (void)savePetCount:(NSInteger)v {
+    self.petCount = MIN(MAX(v, 1), 5);
+    ANVSetPref(@"PetCount", @(self.petCount));
 }
 
 - (void)savePetAction:(NSInteger)v {
