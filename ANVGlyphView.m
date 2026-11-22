@@ -64,7 +64,7 @@
 #pragma mark - 路径
 
 - (UIBezierPath *)pathForKind:(ANVGlyphKind)kind inRect:(CGRect)r {
-    CGFloat side = MIN(r.size.width, r.size.height) * 0.74;
+    CGFloat side = MIN(r.size.width, r.size.height) * 0.94;
     CGRect box = CGRectMake(CGRectGetMidX(r) - side / 2.0,
                             CGRectGetMidY(r) - side / 2.0,
                             side, side);
@@ -121,9 +121,10 @@
     CGFloat lw = _highlighted ? _lineWidth * 1.35 : _lineWidth;
 
     CGContextSaveGState(ctx);
+    // 霓虹感：先画一层很宽的彩色光晕，再叠实色，最后加一道偏白的“灯芯”
     CGContextSetShadowWithColor(ctx, CGSizeZero,
-                                _highlighted ? 12.0 : 7.0,
-                                [color colorWithAlphaComponent:0.95].CGColor);
+                                _highlighted ? 18.0 : 12.0,
+                                [color colorWithAlphaComponent:1.0].CGColor);
 
     if (_image) {
         CGFloat inset = MIN(rect.size.width, rect.size.height) * 0.06;
@@ -141,12 +142,26 @@
     path.lineCapStyle = kCGLineCapRound;
 
     if (_kind == ANVGlyphBack) {
-        // 三角是实心的，跟参考图一致
+        // 三角实心，中间偏白，边缘纯色，像亮着的灯
         [color setFill];
         [path fill];
     }
+
     [color setStroke];
     [path stroke];
+
+    // 灯芯：细一圈偏白，让描边看起来在发光
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+    UIColor *core = [color colorWithAlphaComponent:0.55];
+    UIColor *white = [UIColor colorWithWhite:1.0 alpha:0.85];
+    UIBezierPath *corePath = [path copy];
+    corePath.lineWidth = MAX(0.8, lw * 0.42);
+    [core setStroke];
+    [corePath stroke];
+    UIBezierPath *hot = [path copy];
+    hot.lineWidth = MAX(0.5, lw * 0.18);
+    [white setStroke];
+    [hot stroke];
 
     CGContextRestoreGState(ctx);
 }

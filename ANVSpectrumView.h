@@ -8,6 +8,17 @@ typedef NS_ENUM(NSInteger, ANVSpectrumStyle) {
     ANVSpectrumStyleMarquee,    // 跑马灯：一个亮点左右来回跑
     ANVSpectrumStyleStream,     // 流水灯：光带单向循环流动
     ANVSpectrumStylePulse,      // 呼吸波形：正弦起伏扫过
+    ANVSpectrumStyleParticles,  // 七色彩虹粒子左右冲撞
+    ANVSpectrumStyleDoubleCollide, // 双向对冲：两边粒子同时撞向中间
+    ANVSpectrumStyleSpiral,     // 螺旋点阵
+    ANVSpectrumStyleRipple,     // 涟漪圆环
+    ANVSpectrumStyleWaterfall,  // 瀑布下落
+    ANVSpectrumStyleHalo,       // 光环旋转
+    ANVSpectrumStyleStrobe,     // 随机闪烁星点
+    ANVSpectrumStyleBounceBall, // 弹跳小球
+    ANVSpectrumStyleBraid,      // 交织斜线
+    ANVSpectrumStyleHeartbeat,  // 心电图
+    ANVSpectrumStyleRainStreak, // 七色雨丝
 };
 
 /// 导航条背景里的真频谱（10 段真实电平，可插值成 4~24 根柱子）

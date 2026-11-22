@@ -6,14 +6,15 @@
 #import "ANVHistory.h"
 #import "ANVSettings.h"
 #import "ANVSpectrumView.h"
+#import "ANVWidgets.h"
 #import "ANVMusicMonitor.h"
 
 static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     switch (kind) {
-        case ANVGlyphBack:    return [UIColor colorWithRed:0.31 green:0.76 blue:1.00 alpha:1.0]; // 蓝
-        case ANVGlyphHome:    return [UIColor colorWithRed:0.39 green:0.90 blue:0.45 alpha:1.0]; // 绿
-        case ANVGlyphRecents: return [UIColor colorWithRed:1.00 green:0.24 blue:0.50 alpha:1.0]; // 粉
-        case ANVGlyphForward: return [UIColor colorWithRed:1.00 green:0.78 blue:0.26 alpha:1.0]; // 黄
+        case ANVGlyphBack:    return [UIColor colorWithHue:0.57 saturation:1.0 brightness:1.0 alpha:1.0]; // 电光蓝
+        case ANVGlyphHome:    return [UIColor colorWithHue:0.36 saturation:1.0 brightness:1.0 alpha:1.0]; // 荧光绿
+        case ANVGlyphRecents: return [UIColor colorWithHue:0.92 saturation:1.0 brightness:1.0 alpha:1.0]; // 品红粉
+        case ANVGlyphForward: return [UIColor colorWithHue:0.13 saturation:1.0 brightness:1.0 alpha:1.0]; // 亮黄
     }
     return [UIColor whiteColor];
 }
@@ -35,6 +36,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, assign) BOOL hiddenByLock;
 @property (nonatomic, strong) UIView *pullTab;
 @property (nonatomic, strong) UIView *pullTabPill;
+@property (nonatomic, strong) ANVPetView *petView;
+@property (nonatomic, strong) ANVLyricsView *lyricsView;
+@property (nonatomic, copy) NSString *nowPlayingTitle;
 @property (nonatomic, assign) BOOL dockedHidden;
 @property (nonatomic, assign) CGFloat pullOver;   // 顶到下限后还继续往下拉了多少（用来触发收起）
 @end
@@ -149,7 +153,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
 // 底部安全区高度：iPhone 上有 Home 指示条，插件不能把图标塞进去
 - (CGFloat)dockBottomInset {
-    if ([ANVSettings shared].edgeToEdge) return 0.0;   // 用户选择贴屏边，就不避让
+    return 0.0;   // 只保留「贴屏边」：图标贴着屏幕边缘
     CGFloat inset = 0;
     if (@available(iOS 11.0, *)) {
         inset = self.window.safeAreaInsets.bottom;
@@ -267,15 +271,17 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 }
 
 - (NSString *)spectrumStyleTitle {
-    switch ([ANVSettings shared].spectrumStyle) {
-        case 1: return @"点阵";
-        case 2: return @"镜像";
-        case 3: return @"折线";
-        case 4: return @"跑马灯";
-        case 5: return @"流水灯";
-        case 6: return @"呼吸波";
-        default: return @"柱状";
-    }
+    static NSArray *names = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        names = @[@"霓虹柱状", @"点阵", @"上下镜像", @"折线波形", @"跑马灯", @"流水灯",
+                  @"呼吸波", @"彩虹粒子冲撞", @"双向对冲", @"螺旋点阵", @"涟漪圆环",
+                  @"瀑布下落", @"旋转光环", @"随机闪烁", @"弹跳小球", @"交织斜线",
+                  @"心电图", @"七色雨丝"];
+    });
+    NSInteger i = [ANVSettings shared].spectrumStyle;
+    i = MIN(MAX(i, 0), (NSInteger)names.count - 1);
+    return names[(NSUInteger)i];
 }
 
 - (void)directionTapped:(UIButton *)sender {
@@ -322,17 +328,24 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"柱数 %ld · 减", (long)st.spectrumBars],
         [NSString stringWithFormat:@"柱粗 %ld%% · 加", (long)lround(st.spectrumThickness * 100)],
         [NSString stringWithFormat:@"柱粗 %ld%% · 减", (long)lround(st.spectrumThickness * 100)],
-        [NSString stringWithFormat:@"麦克风频谱 · %@", [ANVSettings shared].micSpectrum ? @"开" : @"关"],
-        [NSString stringWithFormat:@"模拟频谱 · %@", [ANVSettings shared].simulateSpectrum ? @"开" : @"关"],
-        [NSString stringWithFormat:@"底边距 · %@", [ANVSettings shared].edgeToEdge ? @"贴屏边" : @"避开Home条"],
-        [NSString stringWithFormat:@"位置 · %@", [ANVSettings shared].positionLocked ? @"已锁定" : @"可拖动"],
+        [NSString stringWithFormat:@"方向 · %@", [self orientationTitle]],
+        [NSString stringWithFormat:@"宠物 · %@", st.petEnabled ? @"开" : @"关"],
+        [NSString stringWithFormat:@"宠物 %ld%% · 加", (long)lround(st.petScale * 100)],
+        [NSString stringWithFormat:@"宠物 %ld%% · 减", (long)lround(st.petScale * 100)],
+        [NSString stringWithFormat:@"举牌歌词 · %@", st.lyricEnabled ? @"开" : @"关"],
+        [NSString stringWithFormat:@"歌词 %ld%% · 加", (long)lround(st.lyricScale * 100)],
+        [NSString stringWithFormat:@"歌词 %ld%% · 减", (long)lround(st.lyricScale * 100)],
+        [NSString stringWithFormat:@"麦克风频谱 · %@", st.micSpectrum ? @"开" : @"关"],
+        [NSString stringWithFormat:@"模拟频谱 · %@", st.simulateSpectrum ? @"开" : @"关"],
+        [NSString stringWithFormat:@"位置 · %@", st.positionLocked ? @"已锁定" : @"可拖动"],
         @"位置复位",
         @"关闭",
     ];
 
     NSArray *tags = @[@0, @1, @2, @3, @4, @5, @6, @7, @8, @9,
                       @200, @201, @202, @203, @204, @205, @206, @207,
-                      @10, @11, @12, @13, @14, @15];
+                      @210, @211, @212, @213, @214, @215, @216,
+                      @10, @11, @13, @14, @15];
 
     if (titles.count > 18) rowH = 30.0;
 
@@ -400,6 +413,21 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     self.panelView = nil;
 }
 
+- (NSString *)orientationTitle {
+    switch ([ANVSettings shared].barOrientation) {
+        case 1: return @"左侧竖排";
+        case 2: return @"右侧竖排";
+        default: return @"底部横排";
+    }
+}
+
+- (void)applyWidgetSettings {
+    ANVSettings *st = [ANVSettings shared];
+    self.petView.sizeScale = st.petScale;
+    self.lyricsView.textScale = st.lyricScale;
+    [self layoutWidgets];
+}
+
 - (void)applySpectrumSettings {
     ANVSettings *st = [ANVSettings shared];
     self.spectrumView.barCount = st.spectrumBars;
@@ -441,7 +469,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 4: [settings saveScalePercent:lround(settings.scale * 100) + 10]; [self rebuildBar]; break;
         case 5: [settings saveScalePercent:lround(settings.scale * 100) - 10]; [self rebuildBar]; break;
         case 7: {
-            [settings saveSpectrumStyle:(settings.spectrumStyle + 1) % 4];
+            [settings saveSpectrumStyle:(settings.spectrumStyle + 1) % 18];
             self.spectrumView.style = (ANVSpectrumStyle)settings.spectrumStyle;
         self.spectrumView.barCount = settings.spectrumBars;
         self.spectrumView.widthRatio = settings.spectrumWidth;
@@ -463,6 +491,13 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             [self showPanel];
             break;
         }
+        case 210: [settings saveBarOrientation:(settings.barOrientation + 1) % 3]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
+        case 211: [settings savePetEnabled:!settings.petEnabled]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
+        case 212: [settings savePetScale:settings.petScale + 0.1]; [self applyWidgetSettings]; [self hidePanel]; [self showPanel]; break;
+        case 213: [settings savePetScale:settings.petScale - 0.1]; [self applyWidgetSettings]; [self hidePanel]; [self showPanel]; break;
+        case 214: [settings saveLyricEnabled:!settings.lyricEnabled]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
+        case 215: [settings saveLyricScale:settings.lyricScale + 0.1]; [self applyWidgetSettings]; [self hidePanel]; [self showPanel]; break;
+        case 216: [settings saveLyricScale:settings.lyricScale - 0.1]; [self applyWidgetSettings]; [self hidePanel]; [self showPanel]; break;
         case 200: [settings saveSpectrumWidth:settings.spectrumWidth + 0.1]; [self applySpectrumSettings]; [self refreshPanel]; break;
         case 201: [settings saveSpectrumWidth:settings.spectrumWidth - 0.1]; [self applySpectrumSettings]; [self refreshPanel]; break;
         case 202: [settings saveSpectrumHeight:settings.spectrumHeight + 0.1]; [self applySpectrumSettings]; [self refreshPanel]; break;
@@ -579,15 +614,23 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     CGFloat glyph = 44.0 * scale;
     CGFloat spacing = 10.0 * scale;
-    CGFloat padH = 14.0 * scale;
-    CGFloat padV = [ANVSettings shared].edgeToEdge ? 1.5 * scale : 4.0 * scale;   // 贴屏边时几乎不留缝
-    CGFloat barHeight = glyph + padV * 2;
+    CGFloat padLong = 14.0 * scale;    // 排布方向两端留白
+    CGFloat padShort = 1.5 * scale;    // 垂直方向留白（贴屏边，几乎不留缝）
+    CGFloat barLength = glyph * 4 + spacing * 3 + padLong * 2;
+    CGFloat barThick = glyph + padShort * 2;
+    BOOL vertical = (settings.barOrientation != 0);
+    CGFloat barW = vertical ? barThick : barLength;
+    CGFloat barH = vertical ? barLength : barThick;
 
-    self.barView = [[UIView alloc] initWithFrame:CGRectMake(0, 0,
-                                                            glyph * 4 + spacing * 3 + padH * 2,
-                                                            barHeight)];
+    self.barView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, barW, barH)];
     self.barView.backgroundColor = [UIColor clearColor];
-    self.barView.layer.cornerRadius = barHeight / 2.0;
+    self.barView.layer.cornerRadius = MIN(barW, barH) / 2.0;
+
+    // 玻璃胶囊：外发光 + 顶部高光，尽量贴近参考图的质感
+    self.barView.layer.shadowColor = [UIColor colorWithHue:0.75 saturation:1.0 brightness:1.0 alpha:1.0].CGColor;
+    self.barView.layer.shadowOpacity = 0.45;
+    self.barView.layer.shadowRadius = 14.0;
+    self.barView.layer.shadowOffset = CGSizeZero;
     self.barView.layer.masksToBounds = NO;
 
     if (!settings.transparentBackground) {
@@ -608,11 +651,33 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [self.barView addSubview:tint];
     }
 
+    // 玻璃高光（上下两层渐变，模拟被光打亮的胶囊）
+    CAGradientLayer *gloss = [CAGradientLayer layer];
+    gloss.frame = self.barView.bounds;
+    gloss.cornerRadius = self.barView.layer.cornerRadius;
+    gloss.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.34].CGColor,
+                     (id)[UIColor colorWithWhite:1.0 alpha:0.10].CGColor,
+                     (id)[UIColor colorWithWhite:0.0 alpha:0.0].CGColor];
+    gloss.locations = @[@0.0, @0.45, @1.0];
+    gloss.startPoint = CGPointMake(0.5, 0.0);
+    gloss.endPoint = CGPointMake(0.5, 0.65);
+    [self.barView.layer addSublayer:gloss];
+
     // 真频谱放最底层，图标在上层
     if (settings.spectrumEnabled) {
         // 铺满整条：频谱占满导航条的宽和高，柱子按条长均分
-        CGRect spectrumFrame = self.barView.bounds;
+        CGRect bounds = self.barView.bounds;
+        CGRect spectrumFrame = bounds;
+        if (vertical) {
+            // 竖排时频谱整体旋转 90°，柱子从侧边往里长
+            spectrumFrame = CGRectMake(0, 0, bounds.size.height, bounds.size.width);
+        }
         self.spectrumView = [[ANVSpectrumView alloc] initWithFrame:spectrumFrame];
+        if (vertical) {
+            self.spectrumView.center = CGPointMake(CGRectGetMidX(bounds), CGRectGetMidY(bounds));
+            self.spectrumView.transform = CGAffineTransformMakeRotation(
+                settings.barOrientation == 1 ? M_PI_2 : -M_PI_2);
+        }
         self.spectrumView.style = (ANVSpectrumStyle)settings.spectrumStyle;
         self.spectrumView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [self.barView addSubview:self.spectrumView];
@@ -621,10 +686,17 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     self.glyphViews = [NSMutableArray array];
     self.buttons = [NSMutableArray array];
 
-    CGFloat originX = padH;
     for (NSInteger kind = ANVGlyphBack; kind <= ANVGlyphForward; kind++) {
         UIButton *button = [UIButton buttonWithType:UIButtonTypeCustom];
-        button.frame = CGRectMake(originX, padV, glyph, glyph);
+        if (vertical) {
+            button.frame = CGRectMake(padShort,
+                                      padLong + kind * (glyph + spacing),
+                                      glyph, glyph);
+        } else {
+            button.frame = CGRectMake(padLong + kind * (glyph + spacing),
+                                      padShort,
+                                      glyph, glyph);
+        }
         button.tag = kind;
         button.backgroundColor = [UIColor clearColor];
 
@@ -649,8 +721,6 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [self.barView addSubview:button];
         [self.glyphViews addObject:glyphView];
         [self.buttons addObject:button];
-
-        originX += glyph + spacing;
     }
 
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
@@ -673,6 +743,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     [self.window.rootViewController.view addSubview:self.barView];
     [self updateFrame];
+    [self buildWidgets];
 }
 
 #pragma mark - 自定义图标
@@ -723,10 +794,97 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         }
     }
     [self.spectrumView advancePhase:delta];
+
+    if (self.petView) {
+        self.petView.energy = levels[0];
+        [self.petView advancePhase:delta];
+    }
+    if (self.lyricsView) {
+        [self.lyricsView advancePhase:delta];
+        static CFTimeInterval lastLyric = 0;
+        CFTimeInterval nowL = CACurrentMediaTime();
+        if (nowL - lastLyric > 4.0) {
+            lastLyric = nowL;
+            self.lyricsView.text = [self currentLyricLine];
+        }
+    }
     [self.spectrumView updateLevels:levels count:10];
 }
 
 #pragma mark - 布局
+
+
+#pragma mark - 宠物 / 举牌歌词
+
+- (void)buildWidgets {
+    ANVSettings *st = [ANVSettings shared];
+
+    [self.petView removeFromSuperview];
+    self.petView = nil;
+    [self.lyricsView removeFromSuperview];
+    self.lyricsView = nil;
+
+    if (st.petEnabled) {
+        self.petView = [[ANVPetView alloc] initWithFrame:CGRectMake(0, 0, 40, 40)];
+        self.petView.sizeScale = st.petScale;
+        [self.window.rootViewController.view addSubview:self.petView];
+    }
+    if (st.lyricEnabled) {
+        self.lyricsView = [[ANVLyricsView alloc] initWithFrame:CGRectMake(0, 0, 240, 28)];
+        self.lyricsView.textScale = st.lyricScale;
+        self.lyricsView.text = [self currentLyricLine];
+        [self.window.rootViewController.view addSubview:self.lyricsView];
+    }
+    [self layoutWidgets];
+}
+
+- (NSString *)currentLyricLine {
+    // 有歌词文件就按行轮播；没有就显示正在播放的歌名
+    NSString *path = @"/var/mobile/Library/AndroNavBar/lyrics.txt";
+    NSString *txt = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];
+    if (txt.length) {
+        NSArray *lines = [txt componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
+        NSMutableArray *valid = [NSMutableArray array];
+        for (NSString *l in lines) if (l.length) [valid addObject:l];
+        if (valid.count) {
+            static NSInteger idx = 0;
+            idx = (idx + 1) % (NSInteger)valid.count;
+            return valid[(NSUInteger)idx];
+        }
+    }
+    if (self.nowPlayingTitle.length) return self.nowPlayingTitle;
+    return @"AndroNavBar";
+}
+
+- (void)layoutWidgets {
+    if (!self.petView && !self.lyricsView) return;
+    CGRect bar = self.barView.frame;
+    BOOL vertical = ([ANVSettings shared].barOrientation != 0);
+    CGFloat thickness = vertical ? bar.size.width : bar.size.height;
+
+    CGFloat lyricH = MAX(22.0, 30.0 * [ANVSettings shared].lyricScale);
+    CGFloat lyricW = vertical ? MIN(200.0, thickness * 6.0) : MIN(bar.size.width * 0.92, 300.0);
+    CGFloat petSize = thickness * 1.15 * [ANVSettings shared].petScale;
+
+    if (vertical) {
+        CGFloat inner = (bar.origin.x < 10) ? 1.0 : -1.0;
+        self.lyricsView.frame = CGRectMake(inner > 0 ? CGRectGetMaxX(bar) + 6
+                                                    : CGRectGetMinX(bar) - lyricW - 6,
+                                          CGRectGetMidY(bar) - lyricH / 2.0, lyricW, lyricH);
+        self.petView.frame = CGRectMake(inner > 0 ? CGRectGetMaxX(bar) + 6
+                                                  : CGRectGetMinX(bar) - petSize - 6,
+                                        CGRectGetMinY(self.lyricsView.frame) - petSize - 4,
+                                        petSize, petSize);
+    } else {
+        self.lyricsView.frame = CGRectMake(CGRectGetMidX(bar) - lyricW / 2.0,
+                                           CGRectGetMinY(bar) - lyricH - 6,
+                                           lyricW, lyricH);
+        self.petView.frame = CGRectMake(CGRectGetMinX(bar) - petSize * 0.25,
+                                        CGRectGetMinY(bar) - petSize + 4,
+                                        petSize, petSize);
+    }
+    self.petView.center = CGPointMake(self.petView.center.x, self.petView.center.y);
+}
 
 - (void)updateFrame {
     if (!self.window || !self.barView) return;

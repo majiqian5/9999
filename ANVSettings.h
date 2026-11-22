@@ -27,6 +27,11 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 @property (nonatomic, readonly) NSInteger spectrumStyle;  // 0 柱状 1 点阵 2 镜像 3 折线
 @property (nonatomic, readonly) BOOL positionLocked;      // 锁住后拖不动
 @property (nonatomic, readonly) BOOL edgeToEdge;
+@property (nonatomic, readonly) NSInteger barOrientation;  // 0 底部横 / 1 左侧竖 / 2 右侧竖
+@property (nonatomic, readonly) BOOL petEnabled;
+@property (nonatomic, readonly) CGFloat petScale;
+@property (nonatomic, readonly) BOOL lyricEnabled;
+@property (nonatomic, readonly) CGFloat lyricScale;
 @property (nonatomic, readonly) CGFloat spectrumWidth;     // 频谱横占比 0.2~1.0
 @property (nonatomic, readonly) CGFloat spectrumHeight;    // 频谱高占比 0.2~1.0
 @property (nonatomic, readonly) NSInteger spectrumBars;    // 柱子数量 4~24
@@ -44,6 +49,11 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 - (void)saveSpectrumSensitivity:(CGFloat)value;
 - (void)savePositionLocked:(BOOL)locked;
 - (void)saveEdgeToEdge:(BOOL)on;
+- (void)saveBarOrientation:(NSInteger)o;
+- (void)savePetEnabled:(BOOL)on;
+- (void)savePetScale:(CGFloat)v;
+- (void)saveLyricEnabled:(BOOL)on;
+- (void)saveLyricScale:(CGFloat)v;
 - (void)saveSpectrumWidth:(CGFloat)v;
 - (void)saveSpectrumHeight:(CGFloat)v;
 - (void)saveSpectrumBars:(NSInteger)v;

@@ -39,6 +39,11 @@ static void ANVSetPref(NSString *key, id value) {
 @property (nonatomic, assign) NSInteger spectrumStyle;
 @property (nonatomic, assign) BOOL positionLocked;
 @property (nonatomic, assign) BOOL edgeToEdge;
+@property (nonatomic, assign) NSInteger barOrientation;
+@property (nonatomic, assign) BOOL petEnabled;
+@property (nonatomic, assign) CGFloat petScale;
+@property (nonatomic, assign) BOOL lyricEnabled;
+@property (nonatomic, assign) CGFloat lyricScale;
 @property (nonatomic, assign) CGFloat spectrumWidth;
 @property (nonatomic, assign) CGFloat spectrumHeight;
 @property (nonatomic, assign) NSInteger spectrumBars;
@@ -106,9 +111,15 @@ static void ANVSetPref(NSString *key, id value) {
     if (sens > 3.0) sens /= 100.0;
     self.spectrumSensitivity = MAX(0.4, MIN(2.0, sens));
 
+    // 参考图那种“彩色粒子闪光”观感，首次升级时把默认样式切到粒子
+    id migratedFlag = ANVCopyPref(@"StyleMigratedV3");
+    if (![migratedFlag boolValue]) {
+        ANVSetPref(@"StyleMigratedV3", @YES);
+        ANVSetPref(@"SpectrumStyle", @7);
+    }
     id style = ANVCopyPref(@"SpectrumStyle");
     NSInteger st = style ? [style integerValue] : 0;
-    if (st < 0 || st > 6) st = 0;
+    if (st < 0 || st > 17) st = 7;
     self.spectrumStyle = st;
 
     id mic = ANVCopyPref(@"MicSpectrum");
@@ -121,6 +132,17 @@ static void ANVSetPref(NSString *key, id value) {
     self.positionLocked = locked ? [locked boolValue] : NO;
     id edge = ANVCopyPref(@"EdgeToEdge");
     self.edgeToEdge = edge ? [edge boolValue] : NO;
+
+    id ori = ANVCopyPref(@"BarOrientation");
+    self.barOrientation = ori ? [ori integerValue] : 0;
+    id pet = ANVCopyPref(@"PetEnabled");
+    self.petEnabled = pet ? [pet boolValue] : YES;
+    id pets = ANVCopyPref(@"PetScale");
+    self.petScale = pets ? [pets doubleValue] : 1.0;
+    id lyr = ANVCopyPref(@"LyricEnabled");
+    self.lyricEnabled = lyr ? [lyr boolValue] : NO;
+    id lyrs = ANVCopyPref(@"LyricScale");
+    self.lyricScale = lyrs ? [lyrs doubleValue] : 1.0;
 
     id sw = ANVCopyPref(@"SpectrumWidth");
     self.spectrumWidth = sw ? [sw doubleValue] : 1.0;
@@ -150,7 +172,7 @@ static void ANVSetPref(NSString *key, id value) {
 }
 
 - (void)saveSpectrumStyle:(NSInteger)style {
-    NSInteger clamped = MAX(0, MIN(6, style));
+    NSInteger clamped = MAX(0, MIN(17, style));
     ANVSetPref(@"SpectrumStyle", @(clamped));
     self.spectrumStyle = clamped;
 }
@@ -171,34 +193,54 @@ static void ANVSetPref(NSString *key, id value) {
     self.simulateSpectrum = enabled;
 }
 
+- (void)saveBarOrientation:(NSInteger)o {
+    self.barOrientation = MIN(MAX(o, 0), 2);
+    ANVSetPref(@"BarOrientation", @(self.barOrientation));
+}
+
+- (void)savePetEnabled:(BOOL)on {
+    self.petEnabled = on;
+    ANVSetPref(@"PetEnabled", @(on));
+}
+
+- (void)savePetScale:(CGFloat)v {
+    self.petScale = MIN(MAX(v, 0.6), 1.6);
+    ANVSetPref(@"PetScale", @(self.petScale));
+}
+
+- (void)saveLyricEnabled:(BOOL)on {
+    self.lyricEnabled = on;
+    ANVSetPref(@"LyricEnabled", @(on));
+}
+
+- (void)saveLyricScale:(CGFloat)v {
+    self.lyricScale = MIN(MAX(v, 0.6), 1.6);
+    ANVSetPref(@"LyricScale", @(self.lyricScale));
+}
+
 - (void)saveSpectrumWidth:(CGFloat)v {
     self.spectrumWidth = MIN(MAX(v, 0.2), 1.0);
-    [[NSUserDefaults standardUserDefaults] setDouble:self.spectrumWidth forKey:@"SpectrumWidth"];
-    [[NSUserDefaults standardUserDefaults] synchronize];
+    ANVSetPref(@"SpectrumWidth", @(self.spectrumWidth));
 }
 
 - (void)saveSpectrumHeight:(CGFloat)v {
     self.spectrumHeight = MIN(MAX(v, 0.2), 1.0);
-    [[NSUserDefaults standardUserDefaults] setDouble:self.spectrumHeight forKey:@"SpectrumHeight"];
-    [[NSUserDefaults standardUserDefaults] synchronize];
+    ANVSetPref(@"SpectrumHeight", @(self.spectrumHeight));
 }
 
 - (void)saveSpectrumBars:(NSInteger)v {
     self.spectrumBars = MIN(MAX(v, 4), 24);
-    [[NSUserDefaults standardUserDefaults] setInteger:self.spectrumBars forKey:@"SpectrumBars"];
-    [[NSUserDefaults standardUserDefaults] synchronize];
+    ANVSetPref(@"SpectrumBars", @(self.spectrumBars));
 }
 
 - (void)saveSpectrumThickness:(CGFloat)v {
     self.spectrumThickness = MIN(MAX(v, 0.15), 1.0);
-    [[NSUserDefaults standardUserDefaults] setDouble:self.spectrumThickness forKey:@"SpectrumThickness"];
-    [[NSUserDefaults standardUserDefaults] synchronize];
+    ANVSetPref(@"SpectrumThickness", @(self.spectrumThickness));
 }
 
 - (void)saveEdgeToEdge:(BOOL)on {
     self.edgeToEdge = on;
-    [[NSUserDefaults standardUserDefaults] setBool:on forKey:@"EdgeToEdge"];
-    [[NSUserDefaults standardUserDefaults] synchronize];
+    ANVSetPref(@"EdgeToEdge", @(on));
     [[NSNotificationCenter defaultCenter] postNotificationName:@"com.doubao.andronavbar.reload"
                                                         object:nil];
 }
