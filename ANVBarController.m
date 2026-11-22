@@ -302,17 +302,26 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     CGFloat width = 240.0;
     CGFloat rowH = 38.0;
+    ANVSettings *st = [ANVSettings shared];
     NSArray *titles = @[
         [NSString stringWithFormat:@"键 1 · %@", [self actionTitleForSlot:0]],
         [NSString stringWithFormat:@"键 2 · %@", [self actionTitleForSlot:1]],
         [NSString stringWithFormat:@"键 3 · %@", [self actionTitleForSlot:2]],
         [NSString stringWithFormat:@"键 4 · %@", [self actionTitleForSlot:3]],
-        [NSString stringWithFormat:@"大小 %ld%% · 调大", (long)lround([ANVSettings shared].scale * 100)],
-        [NSString stringWithFormat:@"大小 %ld%% · 调小", (long)lround([ANVSettings shared].scale * 100)],
-        [NSString stringWithFormat:@"频谱 · %@", [ANVSettings shared].spectrumEnabled ? @"开" : @"关"],
+        [NSString stringWithFormat:@"大小 %ld%% · 调大", (long)lround(st.scale * 100)],
+        [NSString stringWithFormat:@"大小 %ld%% · 调小", (long)lround(st.scale * 100)],
+        [NSString stringWithFormat:@"频谱 · %@", st.spectrumEnabled ? @"开" : @"关"],
         [NSString stringWithFormat:@"样式 · %@", [self spectrumStyleTitle]],
-        [NSString stringWithFormat:@"灵敏度 %ld%% · 加", (long)lround([ANVSettings shared].spectrumSensitivity * 100)],
-        [NSString stringWithFormat:@"灵敏度 %ld%% · 减", (long)lround([ANVSettings shared].spectrumSensitivity * 100)],
+        [NSString stringWithFormat:@"灵敏度 %ld%% · 加", (long)lround(st.spectrumSensitivity * 100)],
+        [NSString stringWithFormat:@"灵敏度 %ld%% · 减", (long)lround(st.spectrumSensitivity * 100)],
+        [NSString stringWithFormat:@"频谱宽 %ld%% · 加", (long)lround(st.spectrumWidth * 100)],
+        [NSString stringWithFormat:@"频谱宽 %ld%% · 减", (long)lround(st.spectrumWidth * 100)],
+        [NSString stringWithFormat:@"频谱高 %ld%% · 加", (long)lround(st.spectrumHeight * 100)],
+        [NSString stringWithFormat:@"频谱高 %ld%% · 减", (long)lround(st.spectrumHeight * 100)],
+        [NSString stringWithFormat:@"柱数 %ld · 加", (long)st.spectrumBars],
+        [NSString stringWithFormat:@"柱数 %ld · 减", (long)st.spectrumBars],
+        [NSString stringWithFormat:@"柱粗 %ld%% · 加", (long)lround(st.spectrumThickness * 100)],
+        [NSString stringWithFormat:@"柱粗 %ld%% · 减", (long)lround(st.spectrumThickness * 100)],
         [NSString stringWithFormat:@"麦克风频谱 · %@", [ANVSettings shared].micSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"模拟频谱 · %@", [ANVSettings shared].simulateSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"底边距 · %@", [ANVSettings shared].edgeToEdge ? @"贴屏边" : @"避开Home条"],
@@ -320,6 +329,12 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         @"位置复位",
         @"关闭",
     ];
+
+    NSArray *tags = @[@0, @1, @2, @3, @4, @5, @6, @7, @8, @9,
+                      @200, @201, @202, @203, @204, @205, @206, @207,
+                      @10, @11, @12, @13, @14, @15];
+
+    if (titles.count > 18) rowH = 30.0;
 
     CGFloat dirRowH = 46.0;
     UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width,
@@ -332,7 +347,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     for (NSUInteger i = 0; i < titles.count; i++) {
         UIButton *row = [UIButton buttonWithType:UIButtonTypeCustom];
         row.frame = CGRectMake(0, 4 + rowH * i, width, rowH);
-        row.tag = i;
+        row.tag = i < tags.count ? [tags[i] integerValue] : (NSInteger)i;
         row.titleLabel.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium];
         [row setTitle:titles[i] forState:UIControlStateNormal];
         [row setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
@@ -385,6 +400,19 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     self.panelView = nil;
 }
 
+- (void)applySpectrumSettings {
+    ANVSettings *st = [ANVSettings shared];
+    self.spectrumView.barCount = st.spectrumBars;
+    self.spectrumView.widthRatio = st.spectrumWidth;
+    self.spectrumView.heightRatio = st.spectrumHeight;
+    self.spectrumView.thickness = st.spectrumThickness;
+}
+
+- (void)refreshPanel {
+    [self hidePanel];
+    [self showPanel];
+}
+
 - (void)rebuildBar {
     [self hidePanel];
     [self.barView removeFromSuperview];
@@ -415,6 +443,10 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 7: {
             [settings saveSpectrumStyle:(settings.spectrumStyle + 1) % 4];
             self.spectrumView.style = (ANVSpectrumStyle)settings.spectrumStyle;
+        self.spectrumView.barCount = settings.spectrumBars;
+        self.spectrumView.widthRatio = settings.spectrumWidth;
+        self.spectrumView.heightRatio = settings.spectrumHeight;
+        self.spectrumView.thickness = settings.spectrumThickness;
             [self hidePanel];
             [self showPanel];
             break;
@@ -431,6 +463,14 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             [self showPanel];
             break;
         }
+        case 200: [settings saveSpectrumWidth:settings.spectrumWidth + 0.1]; [self applySpectrumSettings]; [self refreshPanel]; break;
+        case 201: [settings saveSpectrumWidth:settings.spectrumWidth - 0.1]; [self applySpectrumSettings]; [self refreshPanel]; break;
+        case 202: [settings saveSpectrumHeight:settings.spectrumHeight + 0.1]; [self applySpectrumSettings]; [self refreshPanel]; break;
+        case 203: [settings saveSpectrumHeight:settings.spectrumHeight - 0.1]; [self applySpectrumSettings]; [self refreshPanel]; break;
+        case 204: [settings saveSpectrumBars:settings.spectrumBars + 1]; [self applySpectrumSettings]; [self refreshPanel]; break;
+        case 205: [settings saveSpectrumBars:settings.spectrumBars - 1]; [self applySpectrumSettings]; [self refreshPanel]; break;
+        case 206: [settings saveSpectrumThickness:settings.spectrumThickness + 0.06]; [self applySpectrumSettings]; [self refreshPanel]; break;
+        case 207: [settings saveSpectrumThickness:settings.spectrumThickness - 0.06]; [self applySpectrumSettings]; [self refreshPanel]; break;
         case 10: {
             [settings saveMicSpectrum:!settings.micSpectrum];
             [ANVMusicMonitor shared].micEnabled = settings.micSpectrum;

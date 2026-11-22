@@ -26,7 +26,11 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 @property (nonatomic, readonly) CGFloat spectrumSensitivity; // 0.5 ~ 2.0
 @property (nonatomic, readonly) NSInteger spectrumStyle;  // 0 柱状 1 点阵 2 镜像 3 折线
 @property (nonatomic, readonly) BOOL positionLocked;      // 锁住后拖不动
-@property (nonatomic, readonly) BOOL edgeToEdge;          // YES：允许拖到真正的屏幕最底（会压住 Home 指示条）
+@property (nonatomic, readonly) BOOL edgeToEdge;
+@property (nonatomic, readonly) CGFloat spectrumWidth;     // 频谱横占比 0.2~1.0
+@property (nonatomic, readonly) CGFloat spectrumHeight;    // 频谱高占比 0.2~1.0
+@property (nonatomic, readonly) NSInteger spectrumBars;    // 柱子数量 4~24
+@property (nonatomic, readonly) CGFloat spectrumThickness; // 柱粗 0.15~1.0          // YES：允许拖到真正的屏幕最底（会压住 Home 指示条）
 @property (nonatomic, readonly) BOOL micSpectrum;         // 麦克风频谱（AxsEQ 无数据时用）
 @property (nonatomic, readonly) BOOL simulateSpectrum;    // 模拟频谱（数据源坏时的占位动画）
 
@@ -40,6 +44,10 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 - (void)saveSpectrumSensitivity:(CGFloat)value;
 - (void)savePositionLocked:(BOOL)locked;
 - (void)saveEdgeToEdge:(BOOL)on;
+- (void)saveSpectrumWidth:(CGFloat)v;
+- (void)saveSpectrumHeight:(CGFloat)v;
+- (void)saveSpectrumBars:(NSInteger)v;
+- (void)saveSpectrumThickness:(CGFloat)v;
 - (void)saveMicSpectrum:(BOOL)enabled;
 - (void)saveSimulateSpectrum:(BOOL)enabled;
 - (void)saveAction:(ANVKeyAction)action forSlot:(NSInteger)slot;

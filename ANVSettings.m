@@ -39,6 +39,10 @@ static void ANVSetPref(NSString *key, id value) {
 @property (nonatomic, assign) NSInteger spectrumStyle;
 @property (nonatomic, assign) BOOL positionLocked;
 @property (nonatomic, assign) BOOL edgeToEdge;
+@property (nonatomic, assign) CGFloat spectrumWidth;
+@property (nonatomic, assign) CGFloat spectrumHeight;
+@property (nonatomic, assign) NSInteger spectrumBars;
+@property (nonatomic, assign) CGFloat spectrumThickness;
 @property (nonatomic, assign) BOOL micSpectrum;
 @property (nonatomic, assign) BOOL simulateSpectrum;
 @end
@@ -118,6 +122,15 @@ static void ANVSetPref(NSString *key, id value) {
     id edge = ANVCopyPref(@"EdgeToEdge");
     self.edgeToEdge = edge ? [edge boolValue] : NO;
 
+    id sw = ANVCopyPref(@"SpectrumWidth");
+    self.spectrumWidth = sw ? [sw doubleValue] : 1.0;
+    id sh = ANVCopyPref(@"SpectrumHeight");
+    self.spectrumHeight = sh ? [sh doubleValue] : 1.0;
+    id sb = ANVCopyPref(@"SpectrumBars");
+    self.spectrumBars = sb ? [sb integerValue] : 10;
+    id sth = ANVCopyPref(@"SpectrumThickness");
+    self.spectrumThickness = sth ? [sth doubleValue] : 0.62;
+
     NSInteger defaults[4] = {ANVKeyActionBack, ANVKeyActionHome, ANVKeyActionRecents, ANVKeyActionForward};
     NSMutableArray *actions = [NSMutableArray arrayWithCapacity:4];
     for (NSInteger slot = 0; slot < 4; slot++) {
@@ -156,6 +169,30 @@ static void ANVSetPref(NSString *key, id value) {
 - (void)saveSimulateSpectrum:(BOOL)enabled {
     ANVSetPref(@"SimulateSpectrum", @(enabled));
     self.simulateSpectrum = enabled;
+}
+
+- (void)saveSpectrumWidth:(CGFloat)v {
+    self.spectrumWidth = MIN(MAX(v, 0.2), 1.0);
+    [[NSUserDefaults standardUserDefaults] setDouble:self.spectrumWidth forKey:@"SpectrumWidth"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
+
+- (void)saveSpectrumHeight:(CGFloat)v {
+    self.spectrumHeight = MIN(MAX(v, 0.2), 1.0);
+    [[NSUserDefaults standardUserDefaults] setDouble:self.spectrumHeight forKey:@"SpectrumHeight"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
+
+- (void)saveSpectrumBars:(NSInteger)v {
+    self.spectrumBars = MIN(MAX(v, 4), 24);
+    [[NSUserDefaults standardUserDefaults] setInteger:self.spectrumBars forKey:@"SpectrumBars"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+}
+
+- (void)saveSpectrumThickness:(CGFloat)v {
+    self.spectrumThickness = MIN(MAX(v, 0.15), 1.0);
+    [[NSUserDefaults standardUserDefaults] setDouble:self.spectrumThickness forKey:@"SpectrumThickness"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
 }
 
 - (void)saveEdgeToEdge:(BOOL)on {

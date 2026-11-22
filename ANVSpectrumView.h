@@ -10,11 +10,21 @@ typedef NS_ENUM(NSInteger, ANVSpectrumStyle) {
     ANVSpectrumStylePulse,      // 呼吸波形：正弦起伏扫过
 };
 
-/// 导航条背景里的真频谱（10 段，对应 AxsEQ 的真实电平）
+/// 导航条背景里的真频谱（10 段真实电平，可插值成 4~24 根柱子）
 @interface ANVSpectrumView : UIView
 @property (nonatomic, assign) ANVSpectrumStyle style;
 /// 跑马灯/流水灯/呼吸都需要时间相位，由外部 tick 推进
 @property (nonatomic, assign) CGFloat phase;
+
+/// 柱子数量 4~24
+@property (nonatomic, assign) NSInteger barCount;
+/// 频谱横向占条宽的比例 0.2~1.0
+@property (nonatomic, assign) CGFloat widthRatio;
+/// 频谱纵向占条高的比例 0.2~1.0
+@property (nonatomic, assign) CGFloat heightRatio;
+/// 单根柱子的粗细（占每个槽位的比例）0.15~1.0
+@property (nonatomic, assign) CGFloat thickness;
+
 - (void)advancePhase:(CGFloat)delta;
 - (void)updateLevels:(const float *)levels count:(NSUInteger)count;
 @end

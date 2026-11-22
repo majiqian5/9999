@@ -1,9 +1,13 @@
 #import "ANVSpectrumView.h"
 
-#define kANVSpectrumBars 10
+#define kANVSrcBars 10
+#define kANVMaxBars 24
+
+@interface ANVSpectrumView ()
+@end
 
 @implementation ANVSpectrumView {
-    float _levels[kANVSpectrumBars];
+    float _levels[kANVSrcBars];
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -13,46 +17,60 @@
         self.opaque = NO;
         self.userInteractionEnabled = NO;
         self.contentMode = UIViewContentModeRedraw;
+        _barCount = 10;
+        _widthRatio = 1.0;
+        _heightRatio = 1.0;
+        _thickness = 0.62;
     }
     return self;
 }
 
+#pragma mark - 参数
+
+- (void)setBarCount:(NSInteger)barCount {
+    _barCount = MIN(MAX(barCount, 4), kANVMaxBars);
+    [self setNeedsDisplay];
+}
+
+- (void)setWidthRatio:(CGFloat)widthRatio {
+    _widthRatio = MIN(MAX(widthRatio, 0.2), 1.0);
+    [self setNeedsDisplay];
+}
+
+- (void)setHeightRatio:(CGFloat)heightRatio {
+    _heightRatio = MIN(MAX(heightRatio, 0.2), 1.0);
+    [self setNeedsDisplay];
+}
+
+- (void)setThickness:(CGFloat)thickness {
+    _thickness = MIN(MAX(thickness, 0.15), 1.0);
+    [self setNeedsDisplay];
+}
+
+- (void)setStyle:(ANVSpectrumStyle)style {
+    _style = style;
+    [self setNeedsDisplay];
+}
+
+- (void)setFrame:(CGRect)frame {
+    [super setFrame:frame];
+    [self setNeedsDisplay];
+}
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+    [self setNeedsDisplay];
+}
+
 - (void)updateLevels:(const float *)levels count:(NSUInteger)count {
-    NSUInteger n = MIN(count, (NSUInteger)kANVSpectrumBars);
+    NSUInteger n = MIN(count, (NSUInteger)kANVSrcBars);
     BOOL changed = NO;
-    for (NSUInteger i = 0; i < kANVSpectrumBars; i++) {
+    for (NSUInteger i = 0; i < kANVSrcBars; i++) {
         float value = i < n ? levels[i] : 0.0f;
         if (fabs(value - _levels[i]) > 0.01f) changed = YES;
         _levels[i] = value;
     }
     if (changed) [self setNeedsDisplay];
-}
-
-- (UIColor *)colorForBar:(NSInteger)index {
-    // 彩虹：色相从红渐变到紫
-    CGFloat t = (CGFloat)index / (CGFloat)(kANVSpectrumBars - 1);
-    CGFloat hue = t * 0.83;              // 0 -> 红, 0.83 -> 紫
-    return [UIColor colorWithHue:hue saturation:1.0 brightness:1.0 alpha:1.0];
-}
-
-- (void)layoutForWidth:(CGFloat)width
-                 start:(CGFloat *)startX
-               barWidth:(CGFloat *)barWidth
-                   gap:(CGFloat *)gap {
-    // 原来写死 4pt 柱宽 + 2pt 间距，10 根只有 58pt，缩在导航条正中间。
-    // 现在按可用宽度均分，柱宽随条长自适应（条越宽柱子越粗、铺满整条）。
-    NSInteger bars = MAX((NSInteger)kANVSpectrumBars, 1);
-    CGFloat gp = MAX(2.0, width / (CGFloat)bars * 0.22);
-    CGFloat bw = (width - gp * (CGFloat)(bars - 1)) / (CGFloat)bars;
-    if (bw < 1.5) {
-        bw = 1.5;
-        gp = MAX(0.5, (width - bw * (CGFloat)bars) / (CGFloat)MAX(bars - 1, 1));
-    }
-    CGFloat total = bw * (CGFloat)bars + gp * (CGFloat)(bars - 1);
-    CGFloat sx = (width - total) / 2.0;
-    if (startX) *startX = sx;
-    if (barWidth) *barWidth = bw;
-    if (gap) *gap = gp;
 }
 
 - (void)advancePhase:(CGFloat)delta {
@@ -61,18 +79,64 @@
     if (self.style >= ANVSpectrumStyleMarquee) [self setNeedsDisplay];
 }
 
+#pragma mark - 取值 / 配色
+
+/// 显示用的柱子数量可以从 10 个源频段插值出来，数量可调
+- (CGFloat)levelAtIndex:(NSInteger)index {
+    NSInteger n = self.barCount;
+    if (n <= 1) return _levels[0];
+    CGFloat src = (CGFloat)index / (CGFloat)(n - 1) * (CGFloat)(kANVSrcBars - 1);
+    NSInteger lo = (NSInteger)floor(src);
+    NSInteger hi = MIN(lo + 1, (NSInteger)kANVSrcBars - 1);
+    CGFloat t = src - (CGFloat)lo;
+    return _levels[lo] * (1.0 - t) + _levels[hi] * t;
+}
+
+- (UIColor *)colorForBar:(NSInteger)index {
+    NSInteger n = MAX(self.barCount - 1, 1);
+    CGFloat hue = ((CGFloat)index / (CGFloat)n) * 0.83;   // 红 -> 紫
+    return [UIColor colorWithHue:hue saturation:1.0 brightness:1.0 alpha:1.0];
+}
+
+#pragma mark - 布局（宽/高/数量/粗细都跟着设置走）
+
+- (CGRect)contentRectForRect:(CGRect)rect {
+    CGFloat w = CGRectGetWidth(rect) * self.widthRatio;
+    CGFloat h = CGRectGetHeight(rect) * self.heightRatio;
+    return CGRectMake(CGRectGetMinX(rect) + (CGRectGetWidth(rect) - w) / 2.0,
+                      CGRectGetMaxY(rect) - h,          // 底部对齐，高度往上收
+                      w, h);
+}
+
+- (void)layoutForRect:(CGRect)rect
+                start:(CGFloat *)startX
+             barWidth:(CGFloat *)barWidth
+                  gap:(CGFloat *)gap
+             contentH:(CGFloat *)contentH {
+    CGRect content = [self contentRectForRect:rect];
+    NSInteger n = MAX(self.barCount, 1);
+    CGFloat slot = CGRectGetWidth(content) / (CGFloat)n;
+    CGFloat bw = slot * self.thickness;
+    bw = MAX(bw, 1.0);
+    CGFloat gp = MAX(slot - bw, 0.0);
+    if (startX) *startX = CGRectGetMinX(content);
+    if (barWidth) *barWidth = bw;
+    if (gap) *gap = gp;
+    if (contentH) *contentH = CGRectGetHeight(content);
+}
+
 #pragma mark - 各种样式
 
 - (void)drawBarsInContext:(CGContextRef)ctx rect:(CGRect)rect mirrored:(BOOL)mirrored {
-    CGFloat startX = 0, barWidth = 0, gap = 0;
-    [self layoutForWidth:CGRectGetWidth(rect) start:&startX barWidth:&barWidth gap:&gap];
+    CGFloat startX = 0, barWidth = 0, gap = 0, contentH = 0;
+    [self layoutForRect:rect start:&startX barWidth:&barWidth gap:&gap contentH:&contentH];
 
-    CGFloat maxHeight = mirrored ? CGRectGetHeight(rect) / 2.0 : CGRectGetHeight(rect);
-    CGFloat baseY = mirrored ? CGRectGetMidY(rect) : CGRectGetMaxY(rect);
-    CGFloat minWidth = 4.0 * barWidth;
+    CGRect content = [self contentRectForRect:rect];
+    CGFloat maxHeight = mirrored ? contentH / 2.0 : contentH;
+    CGFloat baseY = mirrored ? CGRectGetMidY(content) : CGRectGetMaxY(content);
 
-    for (NSInteger i = 0; i < kANVSpectrumBars; i++) {
-        CGFloat level = MAX(_levels[i], 0.05f);
+    for (NSInteger i = 0; i < self.barCount; i++) {
+        CGFloat level = MAX([self levelAtIndex:i], 0.05f);
         CGFloat height = MAX(2.0, maxHeight * level);
         CGFloat x = startX + i * (barWidth + gap);
         CGRect barRect = mirrored
@@ -83,26 +147,28 @@
         CGContextSetFillColorWithColor(ctx, color.CGColor);
         CGContextSetShadowWithColor(ctx, CGSizeZero, 5.0, color.CGColor);
         UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:barRect
-                                                            cornerRadius:barWidth / 2.0];
+                                                            cornerRadius:MIN(barWidth, height) / 2.0];
         [path fill];
     }
-    (void)minWidth;
 }
 
 - (void)drawDotsInContext:(CGContextRef)ctx rect:(CGRect)rect {
-    CGFloat startX = 0, barWidth = 0, gap = 0;
-    [self layoutForWidth:CGRectGetWidth(rect) start:&startX barWidth:&barWidth gap:&gap];
+    CGFloat startX = 0, barWidth = 0, gap = 0, contentH = 0;
+    [self layoutForRect:rect start:&startX barWidth:&barWidth gap:&gap contentH:&contentH];
+    CGRect content = [self contentRectForRect:rect];
 
     NSInteger rows = 6;
-    CGFloat dot = 3.0;
-    CGFloat rowGap = (CGRectGetHeight(rect) - rows * dot) / (CGFloat)(rows > 1 ? rows - 1 : 1);
+    CGFloat dot = MIN(barWidth, contentH / (CGFloat)rows) ;
+    dot = MAX(dot, 1.5);
+    CGFloat rowGap = (contentH - rows * dot) / (CGFloat)(rows > 1 ? rows - 1 : 1);
+    rowGap = MAX(rowGap, 0.5);
 
-    for (NSInteger i = 0; i < kANVSpectrumBars; i++) {
-        NSInteger lit = (NSInteger)lround(_levels[i] * rows);
+    for (NSInteger i = 0; i < self.barCount; i++) {
+        NSInteger lit = (NSInteger)lround([self levelAtIndex:i] * rows);
+        CGFloat x = startX + i * (barWidth + gap) + (barWidth - dot) / 2.0;
+        UIColor *color = [self colorForBar:i];
         for (NSInteger r = 0; r < rows; r++) {
-            CGFloat y = CGRectGetMaxY(rect) - dot - r * (dot + rowGap);
-            CGFloat x = startX + i * (barWidth + gap) + (barWidth - dot) / 2.0;
-            UIColor *color = [self colorForBar:i];
+            CGFloat y = CGRectGetMaxY(content) - dot - r * (dot + rowGap);
             if (r < lit) {
                 CGContextSetFillColorWithColor(ctx, color.CGColor);
             } else {
@@ -115,13 +181,14 @@
 }
 
 - (void)drawLineInContext:(CGContextRef)ctx rect:(CGRect)rect {
-    CGFloat startX = 0, barWidth = 0, gap = 0;
-    [self layoutForWidth:CGRectGetWidth(rect) start:&startX barWidth:&barWidth gap:&gap];
+    CGFloat startX = 0, barWidth = 0, gap = 0, contentH = 0;
+    [self layoutForRect:rect start:&startX barWidth:&barWidth gap:&gap contentH:&contentH];
+    CGRect content = [self contentRectForRect:rect];
 
     CGMutablePathRef path = CGPathCreateMutable();
-    for (NSInteger i = 0; i < kANVSpectrumBars; i++) {
+    for (NSInteger i = 0; i < self.barCount; i++) {
         CGFloat x = startX + i * (barWidth + gap) + barWidth / 2.0;
-        CGFloat y = CGRectGetMaxY(rect) - MAX(_levels[i], 0.03f) * CGRectGetHeight(rect);
+        CGFloat y = CGRectGetMaxY(content) - MAX([self levelAtIndex:i], 0.03f) * contentH;
         if (i == 0) CGPathMoveToPoint(path, NULL, x, y);
         else CGPathAddLineToPoint(path, NULL, x, y);
     }
@@ -132,12 +199,11 @@
     CGContextAddPath(ctx, path);
     CGContextStrokePath(ctx);
 
-    // 用彩虹段再描一遍，做出流光感
-    for (NSInteger i = 0; i < kANVSpectrumBars - 1; i++) {
+    for (NSInteger i = 0; i < self.barCount - 1; i++) {
         CGPoint p0 = CGPointMake(startX + i * (barWidth + gap) + barWidth / 2.0,
-                                 CGRectGetMaxY(rect) - MAX(_levels[i], 0.03f) * CGRectGetHeight(rect));
+                                 CGRectGetMaxY(content) - MAX([self levelAtIndex:i], 0.03f) * contentH);
         CGPoint p1 = CGPointMake(startX + (i + 1) * (barWidth + gap) + barWidth / 2.0,
-                                 CGRectGetMaxY(rect) - MAX(_levels[i + 1], 0.03f) * CGRectGetHeight(rect));
+                                 CGRectGetMaxY(content) - MAX([self levelAtIndex:i + 1], 0.03f) * contentH);
         CGContextSetStrokeColorWithColor(ctx, [self colorForBar:i].CGColor);
         CGContextMoveToPoint(ctx, p0.x, p0.y);
         CGContextAddLineToPoint(ctx, p1.x, p1.y);
@@ -147,22 +213,21 @@
 }
 
 - (void)drawMarqueeInContext:(CGContextRef)ctx rect:(CGRect)rect {
-    CGFloat startX = 0, barWidth = 0, gap = 0;
-    [self layoutForWidth:CGRectGetWidth(rect) start:&startX barWidth:&barWidth gap:&gap];
+    CGFloat startX = 0, barWidth = 0, gap = 0, contentH = 0;
+    [self layoutForRect:rect start:&startX barWidth:&barWidth gap:&gap contentH:&contentH];
+    CGRect content = [self contentRectForRect:rect];
 
-    // 往返：period 2.6 秒走完一轮
     CGFloat t = fmod(_phase / 2.6, 2.0);
-    CGFloat pos = t <= 1.0 ? t : 2.0 - t;                 // 0 -> 1 -> 0
-    CGFloat headIndex = pos * (CGFloat)(kANVSpectrumBars - 1);
+    CGFloat pos = t <= 1.0 ? t : 2.0 - t;
+    CGFloat headIndex = pos * (CGFloat)(self.barCount - 1);
 
-    for (NSInteger i = 0; i < kANVSpectrumBars; i++) {
+    for (NSInteger i = 0; i < self.barCount; i++) {
         CGFloat distance = fabs((CGFloat)i - headIndex);
-        CGFloat glow = MAX(0.0, 1.0 - distance / 2.4);       // 灯头附近最亮
-        CGFloat level = MAX(_levels[i], 0.10f);
-        CGFloat animated = 0.30 + 0.70 * glow;               // 只有跑马灯在动
-        CGFloat height = MAX(6.0, CGRectGetHeight(rect) * level * animated);
+        CGFloat glow = MAX(0.0, 1.0 - distance / 2.4);
+        CGFloat level = MAX([self levelAtIndex:i], 0.10f);
+        CGFloat height = MAX(6.0, contentH * level * (0.30 + 0.70 * glow));
         CGFloat x = startX + i * (barWidth + gap);
-        CGRect barRect = CGRectMake(x, CGRectGetMaxY(rect) - height, barWidth, height);
+        CGRect barRect = CGRectMake(x, CGRectGetMaxY(content) - height, barWidth, height);
 
         UIColor *color = [self colorForBar:i];
         UIColor *fill = glow > 0.55
@@ -171,52 +236,54 @@
         CGContextSetFillColorWithColor(ctx, fill.CGColor);
         CGContextSetShadowWithColor(ctx, CGSizeZero, 6.0 * glow, color.CGColor);
         UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:barRect
-                                                            cornerRadius:barWidth / 2.0];
+                                                            cornerRadius:MIN(barWidth, height) / 2.0];
         [path fill];
     }
 }
 
 - (void)drawStreamInContext:(CGContextRef)ctx rect:(CGRect)rect {
-    CGFloat startX = 0, barWidth = 0, gap = 0;
-    [self layoutForWidth:CGRectGetWidth(rect) start:&startX barWidth:&barWidth gap:&gap];
+    CGFloat startX = 0, barWidth = 0, gap = 0, contentH = 0;
+    [self layoutForRect:rect start:&startX barWidth:&barWidth gap:&gap contentH:&contentH];
+    CGRect content = [self contentRectForRect:rect];
 
-    // 单向循环：1.8 秒一轮
-    CGFloat cycle = fmod(_phase / 1.8, 1.0) * (CGFloat)kANVSpectrumBars;
-    for (NSInteger i = 0; i < kANVSpectrumBars; i++) {
+    NSInteger n = MAX(self.barCount, 1);
+    CGFloat cycle = fmod(_phase / 1.8, 1.0) * (CGFloat)n;
+    for (NSInteger i = 0; i < n; i++) {
         CGFloat distance = fabs((CGFloat)i - cycle);
-        distance = MIN(distance, (CGFloat)kANVSpectrumBars - distance);
+        distance = MIN(distance, (CGFloat)n - distance);
         CGFloat glow = MAX(0.0, 1.0 - distance / 3.0);
-        CGFloat level = MAX(_levels[i], 0.10f);
-        CGFloat height = MAX(6.0, CGRectGetHeight(rect) * level * (0.4 + 0.6 * glow));
+        CGFloat level = MAX([self levelAtIndex:i], 0.10f);
+        CGFloat height = MAX(6.0, contentH * level * (0.4 + 0.6 * glow));
         CGFloat x = startX + i * (barWidth + gap);
-        CGRect barRect = CGRectMake(x, CGRectGetMaxY(rect) - height, barWidth, height);
+        CGRect barRect = CGRectMake(x, CGRectGetMaxY(content) - height, barWidth, height);
 
         UIColor *color = [self colorForBar:i];
         UIColor *fill = [color colorWithAlphaComponent:0.25 + 0.75 * glow];
         CGContextSetFillColorWithColor(ctx, fill.CGColor);
         CGContextSetShadowWithColor(ctx, CGSizeZero, 8.0 * glow, color.CGColor);
         UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:barRect
-                                                            cornerRadius:barWidth / 2.0];
+                                                            cornerRadius:MIN(barWidth, height) / 2.0];
         [path fill];
     }
 }
 
 - (void)drawPulseInContext:(CGContextRef)ctx rect:(CGRect)rect {
-    CGFloat startX = 0, barWidth = 0, gap = 0;
-    [self layoutForWidth:CGRectGetWidth(rect) start:&startX barWidth:&barWidth gap:&gap];
+    CGFloat startX = 0, barWidth = 0, gap = 0, contentH = 0;
+    [self layoutForRect:rect start:&startX barWidth:&barWidth gap:&gap contentH:&contentH];
+    CGRect content = [self contentRectForRect:rect];
 
-    for (NSInteger i = 0; i < kANVSpectrumBars; i++) {
+    for (NSInteger i = 0; i < self.barCount; i++) {
         CGFloat wave = 0.5 + 0.5 * sin(_phase * 2.2 + (CGFloat)i * 0.75);
-        CGFloat level = MAX(_levels[i], 0.10f);
-        CGFloat height = MAX(6.0, CGRectGetHeight(rect) * level * (0.30 + 0.70 * wave));
+        CGFloat level = MAX([self levelAtIndex:i], 0.10f);
+        CGFloat height = MAX(6.0, contentH * level * (0.30 + 0.70 * wave));
         CGFloat x = startX + i * (barWidth + gap);
-        CGRect barRect = CGRectMake(x, CGRectGetMaxY(rect) - height, barWidth, height);
+        CGRect barRect = CGRectMake(x, CGRectGetMaxY(content) - height, barWidth, height);
 
         UIColor *color = [self colorForBar:i];
         CGContextSetFillColorWithColor(ctx, color.CGColor);
         CGContextSetShadowWithColor(ctx, CGSizeZero, 6.0, color.CGColor);
         UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:barRect
-                                                            cornerRadius:barWidth / 2.0];
+                                                            cornerRadius:MIN(barWidth, height) / 2.0];
         [path fill];
     }
 }
