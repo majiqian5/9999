@@ -34,7 +34,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, strong) NSTimer *lockTimer;
 @property (nonatomic, assign) BOOL hiddenByLock;
 @property (nonatomic, strong) UIView *pullTab;
+@property (nonatomic, strong) UIView *pullTabPill;
 @property (nonatomic, assign) BOOL dockedHidden;
+@property (nonatomic, assign) CGFloat pullOver;   // 顶到下限后还继续往下拉了多少（用来触发收起）
 @end
 
 // 空白处不接手势，让底下的图标照常能点
@@ -89,6 +91,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                                                  name:UIDeviceOrientationDidChangeNotification
                                                object:nil];
 
+    [ANVMusicMonitor shared].micEnabled = [ANVSettings shared].micSpectrum;
+    [ANVMusicMonitor shared].simulateEnabled = [ANVSettings shared].simulateSpectrum;
+
     if ([ANVSettings shared].spectrumEnabled) {
         [[ANVMusicMonitor shared] start];
         self.displayLink = [CADisplayLink displayLinkWithTarget:self selector:@selector(tick:)];
@@ -142,6 +147,17 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     return NO;
 }
 
+// 底部安全区高度：iPhone 上有 Home 指示条，插件不能把图标塞进去
+- (CGFloat)dockBottomInset {
+    if ([ANVSettings shared].edgeToEdge) return 0.0;   // 用户选择贴屏边，就不避让
+    CGFloat inset = 0;
+    if (@available(iOS 11.0, *)) {
+        inset = self.window.safeAreaInsets.bottom;
+    }
+    if (inset <= 0) inset = 34.0;       // 兜底：全面屏机型
+    return MAX(26.0, inset + 2.0);
+}
+
 - (void)updateLockVisibility {
     BOOL locked = [self isDeviceLocked];
     if (locked == self.barView.hidden) return;   // 状态没变
@@ -153,19 +169,48 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 }
 
 - (void)buildPullTab {
-    CGFloat w = 64.0, h = 5.0;
+    CGFloat w = 64.0, h = 5.0, hitW = 150.0, hitH = 34.0;
     CGRect screen = [UIScreen mainScreen].bounds;
-    UIView *tab = [[UIView alloc] initWithFrame:CGRectMake((screen.size.width - w) / 2.0,
-                                                          screen.size.height - h - 2.0, w, h)];
-    tab.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.28];
-    tab.layer.cornerRadius = h / 2.0;
+
+    // 5pt 高的细条太难点中（尤其在底部 Home 指示条上），
+    // 所以外面套一个 150×34 的透明热区，里面才是那根细条。
+    UIView *tab = [[UIView alloc] initWithFrame:CGRectMake((screen.size.width - hitW) / 2.0,
+                                                          screen.size.height - hitH - 1.0,
+                                                          hitW, hitH)];
+    tab.backgroundColor = [UIColor clearColor];
     tab.hidden = YES;
     tab.userInteractionEnabled = YES;
+
+    UIView *pill = [[UIView alloc] initWithFrame:CGRectMake((hitW - w) / 2.0,
+                                                          hitH - h - 2.0, w, h)];
+    pill.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.34];
+    pill.layer.cornerRadius = h / 2.0;
+    pill.userInteractionEnabled = NO;
+    [tab addSubview:pill];
+    self.pullTabPill = pill;
+
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self
                                                                          action:@selector(restoreFromDock)];
     [tab addGestureRecognizer:tap];
+
+    // 点不中也还能往上划：上滑超过 16pt 就恢复
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self
+                                                                         action:@selector(handlePullPan:)];
+    [tab addGestureRecognizer:pan];
+
     [self.window.rootViewController.view addSubview:tab];
     self.pullTab = tab;
+}
+
+- (void)handlePullPan:(UIPanGestureRecognizer *)pan {
+    if (!self.dockedHidden) return;
+    CGPoint t = [pan translationInView:self.window];
+    if (pan.state == UIGestureRecognizerStateChanged && t.y < -16.0) {
+        [self restoreFromDock];
+    } else if (pan.state == UIGestureRecognizerStateChanged && t.y > 6.0) {
+        // 往下拖一点，让细条跟着走，反馈更明显（松手回弹）
+        self.pullTabPill.transform = CGAffineTransformMakeTranslation(0, 0);
+    }
 }
 
 - (void)dockHide {
@@ -191,13 +236,14 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     self.barView.hidden = NO;
     CGFloat screenH = [UIScreen mainScreen].bounds.size.height;
     CGFloat halfH = self.barView.bounds.size.height / 2.0;
+    CGFloat inset = [self dockBottomInset];
     [UIView animateWithDuration:0.2 animations:^{
         self.barView.center = CGPointMake(self.barView.center.x,
-                                          screenH - halfH);
+                                          screenH - halfH - inset);
         self.barView.alpha = [ANVSettings shared].opacity;
     } completion:^(BOOL finished) {
         [[ANVSettings shared] saveCenter:CGPointMake(0.5,
-            (screenH - halfH) / MAX(1.0, screenH))];
+            (screenH - halfH - inset) / MAX(1.0, screenH))];
         [self updateFrame];
     }];
     [ANVActions note:@"dock restored"];
@@ -267,6 +313,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"样式 · %@", [self spectrumStyleTitle]],
         [NSString stringWithFormat:@"灵敏度 %ld%% · 加", (long)lround([ANVSettings shared].spectrumSensitivity * 100)],
         [NSString stringWithFormat:@"灵敏度 %ld%% · 减", (long)lround([ANVSettings shared].spectrumSensitivity * 100)],
+        [NSString stringWithFormat:@"麦克风频谱 · %@", [ANVSettings shared].micSpectrum ? @"开" : @"关"],
+        [NSString stringWithFormat:@"模拟频谱 · %@", [ANVSettings shared].simulateSpectrum ? @"开" : @"关"],
+        [NSString stringWithFormat:@"底边距 · %@", [ANVSettings shared].edgeToEdge ? @"贴屏边" : @"避开Home条"],
         [NSString stringWithFormat:@"位置 · %@", [ANVSettings shared].positionLocked ? @"已锁定" : @"可拖动"],
         @"位置复位",
         @"关闭",
@@ -383,6 +432,27 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             break;
         }
         case 10: {
+            [settings saveMicSpectrum:!settings.micSpectrum];
+            [ANVMusicMonitor shared].micEnabled = settings.micSpectrum;
+            [self hidePanel];
+            [self showPanel];
+            break;
+        }
+        case 11: {
+            [settings saveSimulateSpectrum:!settings.simulateSpectrum];
+            [ANVMusicMonitor shared].simulateEnabled = settings.simulateSpectrum;
+            [self hidePanel];
+            [self showPanel];
+            break;
+        }
+        case 12: {
+            [settings saveEdgeToEdge:!settings.edgeToEdge];
+            [self updateFrame];
+            [self hidePanel];
+            [self showPanel];
+            break;
+        }
+        case 13: {
             [settings savePositionLocked:!settings.positionLocked];
             [self hidePanel];
             [self showPanel];
@@ -406,7 +476,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             [self rebuildBar];
             break;
         }
-        case 11:
+        case 14:
             [settings saveCenter:CGPointMake(0.5, 0.86)];
             [self updateFrame];
             break;
@@ -524,6 +594,11 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
         UIImage *customImage = [self customImageForSlot:kind];
         if (customImage) [glyphView setGlyphImage:customImage];
+        [ANVActions note:[NSString stringWithFormat:
+            @"glyph %ld frame=%@ img=%@ color=%@",
+            (long)kind, NSStringFromCGRect(button.frame),
+            customImage ? NSStringFromCGSize(customImage.size) : @"vector",
+            glyphView.glyphColor]];
         [button addSubview:glyphView];
 
         [button addTarget:self action:@selector(glyphTapped:) forControlEvents:UIControlEventTouchUpInside];
@@ -573,7 +648,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                               [NSString stringWithFormat:@"slot%ld.%@", (long)slot, ext]];
             if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
                 UIImage *image = [UIImage imageWithContentsOfFile:path];
-                if (image) return image;
+                [ANVActions note:[NSString stringWithFormat:@"icon file %@ size=%@",
+                                  path, NSStringFromCGSize(image.size)]];
+                if (image && image.size.width >= 4) return image;
             }
         }
     }
@@ -621,9 +698,10 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     CGFloat halfW = barSize.width / 2.0;
     CGFloat halfH = barSize.height / 2.0;
-    // 允许贴到屏幕最底/最顶：不再留 10~24pt 的边距，只要不整条跑出屏幕就行
+    // 底边留出 Home 指示条的高度，图标别压在系统手势区（否则又挡 Home 条又点不灵）
+    CGFloat bottomInset = [self dockBottomInset];
     CGFloat maxX = MAX(halfW, screen.size.width - halfW);
-    CGFloat maxY = MAX(halfH, screen.size.height - halfH);
+    CGFloat maxY = MAX(halfH, screen.size.height - halfH - bottomInset);
 
     CGPoint center = CGPointMake(screen.size.width * settings.centerX,
                                  screen.size.height * settings.centerY);
@@ -654,12 +732,28 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
     switch (pan.state) {
         case UIGestureRecognizerStateBegan:
             self.dragging = YES;
+            self.pullOver = 0.0;
             self.dragStartCenter = self.barView.center;
             break;
         case UIGestureRecognizerStateChanged: {
             CGPoint translation = [pan translationInView:nil];
             CGPoint center = CGPointMake(self.dragStartCenter.x + translation.x,
                                          self.dragStartCenter.y + translation.y);
+
+            // 拖动过程中就夹住，不许越过 Home 指示条那条线（松手也不会再掉下去）
+            CGRect screen = [UIScreen mainScreen].bounds;
+            CGSize bar = self.barView.bounds.size;
+            CGFloat halfH3 = bar.height / 2.0;
+            CGFloat limitY = screen.size.height - halfH3 - [self dockBottomInset];
+            center.y = MIN(center.y, limitY);
+            center.y = MAX(center.y, halfH3);
+            center.x = MIN(MAX(center.x, bar.width / 2.0),
+                           screen.size.width - bar.width / 2.0);
+
+            // 已经顶到下限还继续往下拽多少，记录下来给松手判断用
+            CGFloat wanted = self.dragStartCenter.y + translation.y;
+            self.pullOver = MAX(0.0, wanted - limitY);
+
             self.barView.center = center;
             break;
         }
@@ -671,8 +765,9 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
 
             // 只有拖到屏幕外一大截才收起；落在底边附近则直接吸附贴边
             CGFloat halfH2 = self.barView.bounds.size.height / 2.0;
-            CGFloat bottomY = screen.size.height - halfH2;
-            if (center.y > bottomY + halfH2 * 0.6) {
+            CGFloat bottomY = screen.size.height - halfH2 - [self dockBottomInset];
+            // 顶到下限后还往下拽 60pt 以上，才当成「拖出去收起」
+            if (self.pullOver > 60.0) {
                 [self dockHide];
                 break;
             }
@@ -687,7 +782,7 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
                 center.x = MIN(MAX(center.x, self.barView.bounds.size.width / 2.0),
                            screen.size.width - self.barView.bounds.size.width / 2.0);
             center.y = MIN(MAX(center.y, self.barView.bounds.size.height / 2.0),
-                           screen.size.height - self.barView.bounds.size.height / 2.0);
+                           screen.size.height - self.barView.bounds.size.height / 2.0 - [self dockBottomInset]);
             CGPoint normalized = CGPointMake(center.x / screen.size.width,
                                                  center.y / screen.size.height);
                 [[ANVSettings shared] saveCenter:normalized];

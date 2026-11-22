@@ -26,6 +26,9 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 @property (nonatomic, readonly) CGFloat spectrumSensitivity; // 0.5 ~ 2.0
 @property (nonatomic, readonly) NSInteger spectrumStyle;  // 0 柱状 1 点阵 2 镜像 3 折线
 @property (nonatomic, readonly) BOOL positionLocked;      // 锁住后拖不动
+@property (nonatomic, readonly) BOOL edgeToEdge;          // YES：允许拖到真正的屏幕最底（会压住 Home 指示条）
+@property (nonatomic, readonly) BOOL micSpectrum;         // 麦克风频谱（AxsEQ 无数据时用）
+@property (nonatomic, readonly) BOOL simulateSpectrum;    // 模拟频谱（数据源坏时的占位动画）
 
 - (void)reload;
 - (void)saveCenter:(CGPoint)normalizedPoint;
@@ -36,5 +39,8 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 - (void)saveSpectrumStyle:(NSInteger)style;
 - (void)saveSpectrumSensitivity:(CGFloat)value;
 - (void)savePositionLocked:(BOOL)locked;
+- (void)saveEdgeToEdge:(BOOL)on;
+- (void)saveMicSpectrum:(BOOL)enabled;
+- (void)saveSimulateSpectrum:(BOOL)enabled;
 - (void)saveAction:(ANVKeyAction)action forSlot:(NSInteger)slot;
 @end

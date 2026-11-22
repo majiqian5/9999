@@ -38,6 +38,9 @@ static void ANVSetPref(NSString *key, id value) {
 @property (nonatomic, strong) NSArray<NSNumber *> *slotActions;
 @property (nonatomic, assign) NSInteger spectrumStyle;
 @property (nonatomic, assign) BOOL positionLocked;
+@property (nonatomic, assign) BOOL edgeToEdge;
+@property (nonatomic, assign) BOOL micSpectrum;
+@property (nonatomic, assign) BOOL simulateSpectrum;
 @end
 
 @implementation ANVSettings
@@ -104,8 +107,16 @@ static void ANVSetPref(NSString *key, id value) {
     if (st < 0 || st > 6) st = 0;
     self.spectrumStyle = st;
 
+    id mic = ANVCopyPref(@"MicSpectrum");
+    self.micSpectrum = mic ? [mic boolValue] : NO;
+
+    id sim = ANVCopyPref(@"SimulateSpectrum");
+    self.simulateSpectrum = sim ? [sim boolValue] : YES;
+
     id locked = ANVCopyPref(@"PositionLocked");
     self.positionLocked = locked ? [locked boolValue] : NO;
+    id edge = ANVCopyPref(@"EdgeToEdge");
+    self.edgeToEdge = edge ? [edge boolValue] : NO;
 
     NSInteger defaults[4] = {ANVKeyActionBack, ANVKeyActionHome, ANVKeyActionRecents, ANVKeyActionForward};
     NSMutableArray *actions = [NSMutableArray arrayWithCapacity:4];
@@ -135,6 +146,24 @@ static void ANVSetPref(NSString *key, id value) {
     CGFloat clamped = MAX(0.4, MIN(2.0, value));
     ANVSetPref(@"SpectrumSensitivity", @(lround(clamped * 100.0)));
     self.spectrumSensitivity = clamped;
+}
+
+- (void)saveMicSpectrum:(BOOL)enabled {
+    ANVSetPref(@"MicSpectrum", @(enabled));
+    self.micSpectrum = enabled;
+}
+
+- (void)saveSimulateSpectrum:(BOOL)enabled {
+    ANVSetPref(@"SimulateSpectrum", @(enabled));
+    self.simulateSpectrum = enabled;
+}
+
+- (void)saveEdgeToEdge:(BOOL)on {
+    self.edgeToEdge = on;
+    [[NSUserDefaults standardUserDefaults] setBool:on forKey:@"EdgeToEdge"];
+    [[NSUserDefaults standardUserDefaults] synchronize];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"com.doubao.andronavbar.reload"
+                                                        object:nil];
 }
 
 - (void)savePositionLocked:(BOOL)locked {
