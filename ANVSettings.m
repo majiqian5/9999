@@ -33,6 +33,7 @@ static void ANVSetPref(NSString *key, id value) {
 @property (nonatomic, assign) BOOL haptics;
 @property (nonatomic, assign) BOOL autoHideInFullScreen;
 @property (nonatomic, assign) BOOL transparentBackground;
+@property (nonatomic, assign) NSInteger keyBackgroundMode;
 @property (nonatomic, assign) BOOL spectrumEnabled;
 @property (nonatomic, assign) CGFloat spectrumSensitivity;
 @property (nonatomic, strong) NSArray<NSNumber *> *slotActions;
@@ -116,6 +117,9 @@ static void ANVSetPref(NSString *key, id value) {
 
     id transparent = ANVCopyPref(@"TransparentBackground");
     self.transparentBackground = transparent ? [transparent boolValue] : YES;
+    id kbm = ANVCopyPref(@"KeyBgMode");
+    self.keyBackgroundMode = kbm ? MIN(MAX([kbm integerValue], 0), 2)
+                                 : (self.transparentBackground ? 1 : 0);
 
     id spectrum = ANVCopyPref(@"SpectrumEnabled");
     self.spectrumEnabled = spectrum ? [spectrum boolValue] : NO;
@@ -273,7 +277,7 @@ static void ANVSetPref(NSString *key, id value) {
 }
 
 - (void)savePetStyle:(NSInteger)v {
-    self.petStyle = MIN(MAX(v, 0), 3);
+    self.petStyle = MIN(MAX(v, 0), 5);
     ANVSetPref(@"PetStyle", @(self.petStyle));
 }
 
@@ -293,6 +297,13 @@ static void ANVSetPref(NSString *key, id value) {
 - (void)saveBubbleH:(CGFloat)v { self.bubbleH = MIN(MAX(v, 16.0), 44.0); ANVSetPref(@"BubbleH", @(self.bubbleH)); }
 - (void)saveBubbleAlpha:(CGFloat)v { self.bubbleAlpha = MIN(MAX(v, 0.15), 1.0); ANVSetPref(@"BubbleAlpha", @(self.bubbleAlpha)); }
 - (void)saveTransparentBackground:(BOOL)v { self.transparentBackground = v; ANVSetPref(@"TransparentBackground", @(v)); }
+
+- (void)saveKeyBackgroundMode:(NSInteger)v {
+    self.keyBackgroundMode = MIN(MAX(v, 0), 2);
+    self.transparentBackground = (self.keyBackgroundMode != 0);
+    ANVSetPref(@"KeyBgMode", @(self.keyBackgroundMode));
+    ANVSetPref(@"TransparentBackground", @(self.transparentBackground));
+}
 
 - (void)saveBubbleAutoFit:(BOOL)v { self.bubbleAutoFit = v; ANVSetPref(@"BubbleAutoFit", @(v)); }
 

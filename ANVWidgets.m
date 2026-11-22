@@ -218,10 +218,10 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
     [self setNeedsDisplay];
 }
 
-+ (NSInteger)actionCount { return 19; }
++ (NSInteger)actionCount { return 22; }
 
 + (NSString *)titleForAction:(NSInteger)action {
-    switch (MIN(MAX(action, 0), 16)) {
+    switch (MIN(MAX(action, 0), 21)) {
         case 0:  return @"发呆";
         case 1:  return @"点头";
         case 2:  return @"跳舞";
@@ -240,7 +240,10 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
         case 15: return @"星星环绕";
         case 16: return @"爱心发射";
         case 17: return @"走动";
-        default: return @"翻跟头";
+        case 18: return @"翻跟头";
+        case 19: return @"开枪扫射";
+        case 20: return @"放烟花";
+        default: return @"迪斯科";
     }
 }
 
@@ -318,6 +321,9 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
         case 9:  [self drawZZZ:ctx rect:herd]; break;
         case 14: [self drawBubblesAround:ctx rect:herd]; break;
         case 15: [self drawStarsOrbit:ctx rect:herd]; break;
+        case 19: [self drawGunfire:ctx rect:herd]; break;
+        case 20: [self drawFireworks:ctx rect:herd]; break;
+        case 21: [self drawDisco:ctx rect:herd]; break;
         default: break;
     }
 }
@@ -326,7 +332,7 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
 - (void)drawGroupInContext:(CGContextRef)ctx startX:(CGFloat)startX walkX:(CGFloat)walkX
                       count:(NSInteger)n origin:(NSInteger)origin
                        side:(CGFloat)side bottom:(CGFloat)bottom {
-    NSInteger act = MIN(MAX(_action, 0), 18);
+    NSInteger act = MIN(MAX(_action, 0), 21);
     for (NSInteger k = 0; k < n; k++) {
         NSInteger gi = origin + k;
         CGFloat t = _phase + (CGFloat)gi * 0.55;
@@ -682,6 +688,119 @@ static void ANVStarPath(CGContextRef ctx, CGPoint c, CGFloat s, UIColor *color) 
     [p closePath];
     [color setFill];
     [p fill];
+}
+
+/// 开枪扫射：枪口闪光 + 弹道流星
+- (void)drawGunfire:(CGContextRef)ctx rect:(CGRect)rect {
+    CGFloat side = CGRectGetHeight(rect);
+    if (side < 10.0) return;
+    CGFloat muzzleX = CGRectGetMaxX(rect) - side * 0.12;
+    CGFloat muzzleY = CGRectGetMidY(rect) - side * 0.06;
+    CGFloat blink = 0.5 + 0.5 * sin(_actionPhase * 18.0);
+    UIColor *flash = [UIColor colorWithHue:0.09 saturation:1.0 brightness:1.0 alpha:0.55 + 0.45 * blink];
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 12.0 * blink, flash.CGColor);
+    CGContextSetFillColorWithColor(ctx, flash.CGColor);
+    CGFloat fr = side * (0.10 + 0.06 * blink);
+    CGContextFillEllipseInRect(ctx, CGRectMake(muzzleX - fr, muzzleY - fr, fr * 2, fr * 2));
+    // 星形枪口焰
+    UIBezierPath *star = [UIBezierPath bezierPath];
+    for (NSInteger i = 0; i < 12; i++) {
+        CGFloat a = (CGFloat)i / 12.0 * 2.0 * (CGFloat)M_PI;
+        CGFloat rr = (i % 2 == 0) ? side * 0.16 : side * 0.06;
+        CGPoint p = CGPointMake(muzzleX + cos(a) * rr, muzzleY + sin(a) * rr);
+        if (i == 0) [star moveToPoint:p]; else [star addLineToPoint:p];
+    }
+    [star closePath];
+    [[UIColor colorWithHue:0.14 saturation:0.9 brightness:1.0 alpha:0.85] setStroke];
+    star.lineWidth = 1.1;
+    [star stroke];
+
+    // 弹道：三发循环
+    for (NSInteger k = 0; k < 3; k++) {
+        CGFloat t = fmod(_actionPhase * 1.6 + (CGFloat)k / 3.0, 1.0);
+        CGFloat bx = muzzleX + t * side * 2.6;
+        CGFloat by = muzzleY - t * side * 0.25;
+        CGFloat alpha = (1.0 - t) * 0.9;
+        UIColor *bc = [UIColor colorWithHue:0.12 saturation:1.0 brightness:1.0 alpha:alpha];
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 8.0, bc.CGColor);
+        CGContextSetStrokeColorWithColor(ctx, bc.CGColor);
+        CGContextSetLineWidth(ctx, 1.8);
+        CGContextMoveToPoint(ctx, bx, by);
+        CGContextAddLineToPoint(ctx, bx + side * 0.32, by - side * 0.03);
+        CGContextStrokePath(ctx);
+    }
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+}
+
+/// 放烟花：上方随机爆开九色花火 + 拖尾
+- (void)drawFireworks:(CGContextRef)ctx rect:(CGRect)rect {
+    CGFloat side = CGRectGetHeight(rect);
+    if (side < 10.0) return;
+    for (NSInteger k = 0; k < 3; k++) {
+        CGFloat t = fmod(_actionPhase * 0.5 + (CGFloat)k / 3.0, 1.0);   // 0 -> 1 一轮爆开
+        CGFloat cx = CGRectGetMidX(rect) + sin((CGFloat)k * 2.1 + _actionPhase * 0.4) * side * 0.55;
+        CGFloat cy = CGRectGetMinY(rect) - side * (0.10 + 0.55 * t);
+        CGFloat burst = MIN(1.0, t * 2.2);
+        CGFloat fade = t > 0.6 ? MAX(0.0, 1.0 - (t - 0.6) / 0.4) : 1.0;
+        NSInteger petals = 14;
+        for (NSInteger i = 0; i < petals; i++) {
+            CGFloat a = (CGFloat)i / (CGFloat)petals * 2.0 * (CGFloat)M_PI + (CGFloat)k;
+            CGFloat r = side * 0.34 * burst * (i % 2 == 0 ? 1.0 : 0.62);
+            CGFloat dot = side * 0.045;
+            UIColor *col = [UIColor colorWithHue:fmod((CGFloat)i / (CGFloat)petals + (CGFloat)k * 0.3, 1.0)
+                                       saturation:1.0 brightness:1.0 alpha:fade];
+            CGContextSetShadowWithColor(ctx, CGSizeZero, 7.0, col.CGColor);
+            CGContextSetFillColorWithColor(ctx, col.CGColor);
+            CGContextFillEllipseInRect(ctx, CGRectMake(cx + cos(a) * r - dot,
+                                                       cy + sin(a) * r - dot, dot * 2, dot * 2));
+        }
+    }
+    // 升空拖尾
+    CGFloat t0 = fmod(_actionPhase * 0.5, 1.0);
+    CGFloat rx = CGRectGetMidX(rect) + sin(_actionPhase * 0.4) * side * 0.55;
+    UIColor *trail = [UIColor colorWithHue:0.55 saturation:0.4 brightness:1.0 alpha:0.5];
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 6.0, trail.CGColor);
+    CGContextSetStrokeColorWithColor(ctx, trail.CGColor);
+    CGContextSetLineWidth(ctx, 1.4);
+    CGContextMoveToPoint(ctx, rx, CGRectGetMinY(rect) - side * (0.02 + 0.5 * t0));
+    CGContextAddLineToPoint(ctx, rx, CGRectGetMaxY(rect) - side * 0.2);
+    CGContextStrokePath(ctx);
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+}
+
+/// 迪斯科：旋转彩光从宠物上方扫过 + 地面光斑
+- (void)drawDisco:(CGContextRef)ctx rect:(CGRect)rect {
+    CGFloat side = CGRectGetHeight(rect);
+    if (side < 10.0) return;
+    CGPoint top = CGPointMake(CGRectGetMidX(rect), CGRectGetMinY(rect) - side * 0.12);
+    for (NSInteger i = 0; i < 4; i++) {
+        CGFloat a = _actionPhase * 1.8 + (CGFloat)i * (CGFloat)M_PI_2;
+        UIColor *col = [UIColor colorWithHue:fmod((CGFloat)i * 0.24 + _actionPhase * 0.15, 1.0)
+                                   saturation:1.0 brightness:1.0 alpha:0.55];
+        UIBezierPath *cone = [UIBezierPath bezierPath];
+        [cone moveToPoint:top];
+        [cone addLineToPoint:CGPointMake(top.x + cos(a - 0.18) * side * 1.6,
+                                         top.y + side * 1.7)];
+        [cone addLineToPoint:CGPointMake(top.x + cos(a + 0.18) * side * 1.6,
+                                         top.y + side * 1.7)];
+        [cone closePath];
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 10.0, col.CGColor);
+        [col setFill];
+        [cone fill];
+    }
+    // 地面光斑
+    CGFloat t = fmod(_actionPhase * 0.9, 1.0);
+    for (NSInteger i = 0; i < 3; i++) {
+        CGFloat x = CGRectGetMinX(rect) + side * (0.3 + 0.4 * (CGFloat)i)
+                    + sin(_actionPhase * 1.4 + (CGFloat)i) * side * 0.25;
+        UIColor *c2 = [UIColor colorWithHue:fmod(0.1 + (CGFloat)i * 0.3 + t, 1.0)
+                                  saturation:0.9 brightness:1.0 alpha:0.5];
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 10.0, c2.CGColor);
+        CGContextSetFillColorWithColor(ctx, c2.CGColor);
+        CGContextFillEllipseInRect(ctx, CGRectMake(x - side * 0.16, CGRectGetMaxY(rect) - side * 0.10,
+                                                   side * 0.32, side * 0.12));
+    }
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
 }
 
 - (void)drawHeartsAround:(CGContextRef)ctx rect:(CGRect)rect {

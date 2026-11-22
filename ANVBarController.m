@@ -281,6 +281,14 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     }
 }
 
+- (NSString *)keyBgTitle {
+    switch ([ANVSettings shared].keyBackgroundMode) {
+        case 0: return @"玻璃";
+        case 2: return @"全透明";
+        default: return @"透明";
+    }
+}
+
 - (NSString *)spectrumStyleTitle {
     static NSArray *names = nil;
     static dispatch_once_t once;
@@ -288,7 +296,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         names = @[@"霓虹柱状", @"点阵", @"上下镜像", @"折线波形", @"跑马灯", @"流水灯",
                   @"呼吸波", @"彩虹粒子冲撞", @"双向对冲", @"螺旋点阵", @"涟漪圆环",
                   @"瀑布下落", @"旋转光环", @"随机闪烁", @"弹跳小球", @"交织斜线",
-                  @"心电图", @"七色雨丝"];
+                  @"心电图", @"七色雨丝",
+                  @"双螺旋", @"音柱爆点", @"霓虹波浪", @"旋转射线", @"脉冲光环",
+                  @"横向流星", @"对称羽翼", @"等离子云", @"激光矩阵", @"心跳光带"];
     });
     NSInteger i = [ANVSettings shared].spectrumStyle;
     i = MIN(MAX(i, 0), (NSInteger)names.count - 1);
@@ -383,7 +393,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"光环点 %ld%% · 减", (long)lround(st.haloDotScale * 100)],
         [NSString stringWithFormat:@"光环九色 · %@", st.haloRainbow ? @"开" : @"关"],
         [NSString stringWithFormat:@"光环跳动 · %@", st.haloBounce ? @"开" : @"关"],
-        [NSString stringWithFormat:@"键背景透明 · %@", st.transparentBackground ? @"开" : @"关"],
+        [NSString stringWithFormat:@"键背景 · %@", [self keyBgTitle]],
         [NSString stringWithFormat:@"气泡自适应歌词 · %@", st.bubbleAutoFit ? @"开" : @"关"],
         [NSString stringWithFormat:@"麦克风频谱 · %@", st.micSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"模拟频谱 · %@", st.simulateSpectrum ? @"开" : @"关"],
@@ -688,11 +698,11 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 233: [settings saveHaloDotScale:settings.haloDotScale - 0.1]; [self applyHaloSettings]; break;
         case 234: [settings saveHaloRainbow:!settings.haloRainbow]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
         case 237: [settings saveBubbleAutoFit:!settings.bubbleAutoFit]; [self applyBubbleSettings]; break;
-        case 236: [settings saveTransparentBackground:!settings.transparentBackground]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
+        case 236: [settings saveKeyBackgroundMode:(settings.keyBackgroundMode + 1) % 3]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 235: [settings saveHaloBounce:!settings.haloBounce]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
         case 221: [settings savePetSide:(settings.petSide + 1) % 3]; [self layoutWidgets]; [self hidePanel]; [self showPanel]; break;
         case 220: [settings savePetCount:(settings.petCount % 5) + 1]; [self applyPetCount]; [self hidePanel]; [self showPanel]; break;
-        case 218: [settings savePetAction:(settings.petAction + 1) % 20]; [self applyPetAction]; [self hidePanel]; [self showPanel]; break;
+        case 218: [settings savePetAction:(settings.petAction + 1) % 22]; [self applyPetAction]; [self hidePanel]; [self showPanel]; break;
         case 219: [settings saveShowOnLockScreen:!settings.showOnLockScreen]; [self updateLockVisibility]; [self hidePanel]; [self showPanel]; break;
         case 217: [settings savePetStyle:(settings.petStyle + 1) % 6]; [self applyPetStyle]; [self hidePanel]; [self showPanel]; break;
         case 210: [settings saveBarOrientation:(settings.barOrientation + 1) % 3]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
@@ -842,12 +852,13 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     // 玻璃胶囊：外发光 + 顶部高光，尽量贴近参考图的质感
     self.barView.layer.shadowColor = [UIColor colorWithHue:0.75 saturation:1.0 brightness:1.0 alpha:1.0].CGColor;
-    self.barView.layer.shadowOpacity = 0.45;
+    self.barView.layer.shadowOpacity = (settings.keyBackgroundMode == 2) ? 0.12 : 0.45;
     self.barView.layer.shadowRadius = 14.0;
     self.barView.layer.shadowOffset = CGSizeZero;
     self.barView.layer.masksToBounds = NO;
 
-    if (!settings.transparentBackground) {
+    NSInteger bgMode = settings.keyBackgroundMode;
+    if (bgMode == 0) {
         self.barView.layer.masksToBounds = YES;
         self.barView.layer.borderWidth = 1.0;
         self.barView.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.16].CGColor;
@@ -865,7 +876,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [self.barView addSubview:tint];
     }
 
-    // 玻璃高光（上下两层渐变，模拟被光打亮的胶囊）
+    // 玻璃高光（全透明时不要，否则还是有一层白雾）
+    if (bgMode == 0) {
     CAGradientLayer *gloss = [CAGradientLayer layer];
     gloss.frame = self.barView.bounds;
     gloss.cornerRadius = self.barView.layer.cornerRadius;
@@ -876,6 +888,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     gloss.startPoint = CGPointMake(0.5, 0.0);
     gloss.endPoint = CGPointMake(0.5, 0.65);
     [self.barView.layer addSublayer:gloss];
+    }
 
     // 真频谱放最底层，图标在上层
     if (settings.spectrumEnabled) {

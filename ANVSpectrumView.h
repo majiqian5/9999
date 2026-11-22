@@ -19,6 +19,16 @@ typedef NS_ENUM(NSInteger, ANVSpectrumStyle) {
     ANVSpectrumStyleBraid,      // 交织斜线
     ANVSpectrumStyleHeartbeat,  // 心电图
     ANVSpectrumStyleRainStreak, // 七色雨丝
+    ANVSpectrumStyleHelix,        // 双螺旋
+    ANVSpectrumStyleBurst,        // 音柱爆点
+    ANVSpectrumStyleNeonWave,     // 霓虹波浪
+    ANVSpectrumStyleSpokes,       // 旋转射线
+    ANVSpectrumStylePulseRing,    // 脉冲光环
+    ANVSpectrumStyleMeteor,       // 横向流星
+    ANVSpectrumStyleWings,        // 对称羽翼
+    ANVSpectrumStylePlasma,       // 等离子云
+    ANVSpectrumStyleLaserGrid,    // 激光矩阵
+    ANVSpectrumStyleBeatBeam,     // 心跳光带
 };
 
 /// 导航条背景里的真频谱（10 段真实电平，可插值成 4~24 根柱子）

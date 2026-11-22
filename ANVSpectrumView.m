@@ -615,6 +615,246 @@
     CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
 }
 
+#pragma mark - 新增 10 种风格
+
+/// 18 双螺旋：两条正弦光点绳随电平拉开
+- (void)drawHelixInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGRect c = [self contentRectForRect:rect];
+    NSInteger n = MAX(self.barCount, 8);
+    CGFloat step = CGRectGetWidth(c) / (CGFloat)n;
+    for (NSInteger i = 0; i < n; i++) {
+        CGFloat level = MAX([self levelAtIndex:(i % kANVSrcBars)], 0.08f);
+        CGFloat x = CGRectGetMinX(c) + ((CGFloat)i + 0.5) * step;
+        CGFloat amp = CGRectGetHeight(c) * 0.42 * (0.25 + level);
+        CGFloat midY = CGRectGetMidY(c);
+        CGFloat y1 = midY + sin(_phase * 2.2 + (CGFloat)i * 0.42) * amp;
+        CGFloat y2 = midY - sin(_phase * 2.2 + (CGFloat)i * 0.42 + (CGFloat)M_PI) * amp;
+        CGFloat dot = 1.2 + 2.6 * level;
+        UIColor *c1 = [UIColor colorWithHue:fmod(0.55 + (CGFloat)i * 0.02 + _phase * 0.05, 1.0)
+                                   saturation:1.0 brightness:1.0 alpha:0.95];
+        UIColor *c2 = [UIColor colorWithHue:fmod(0.95 + (CGFloat)i * 0.02 + _phase * 0.05, 1.0)
+                                   saturation:1.0 brightness:1.0 alpha:0.95];
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 6.0, c1.CGColor);
+        CGContextSetFillColorWithColor(ctx, c1.CGColor);
+        CGContextFillEllipseInRect(ctx, CGRectMake(x - dot, y1 - dot, dot * 2, dot * 2));
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 6.0, c2.CGColor);
+        CGContextSetFillColorWithColor(ctx, c2.CGColor);
+        CGContextFillEllipseInRect(ctx, CGRectMake(x - dot, y2 - dot, dot * 2, dot * 2));
+    }
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+}
+
+/// 19 音柱爆点：点从中心按柱子角度向外炸开，半径吃电平
+- (void)drawBurstInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGRect c = [self contentRectForRect:rect];
+    CGPoint mid = CGPointMake(CGRectGetMidX(c), CGRectGetMidY(c));
+    CGFloat maxR = MIN(CGRectGetWidth(c), CGRectGetHeight(c)) * 0.48;
+    NSInteger n = MAX(self.barCount, 8);
+    for (NSInteger ring = 0; ring < 3; ring++) {
+        CGFloat k = 0.35 + 0.28 * (CGFloat)ring;
+        for (NSInteger i = 0; i < n; i++) {
+            CGFloat level = MAX([self levelAtIndex:(i % kANVSrcBars)], 0.08f);
+            CGFloat a = (CGFloat)i / (CGFloat)n * 2.0 * (CGFloat)M_PI + _phase * 0.6 + ring * 0.4;
+            CGFloat r = maxR * k * (0.25 + level) * (ring == 0 ? 1.0 : 1.25);
+            CGFloat dot = 1.4 + 2.4 * level;
+            UIColor *col = [self colorForBar:i];
+            CGContextSetShadowWithColor(ctx, CGSizeZero, 7.0 * level, col.CGColor);
+            CGContextSetFillColorWithColor(ctx,
+                [col colorWithAlphaComponent:0.9 - 0.25 * (CGFloat)ring].CGColor);
+            CGContextFillEllipseInRect(ctx, CGRectMake(mid.x + cos(a) * r - dot,
+                                                       mid.y + sin(a) * r - dot,
+                                                       dot * 2, dot * 2));
+        }
+    }
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+}
+
+/// 20 霓虹波浪：三层主流光正弦波，振幅/亮度吃电平
+- (void)drawNeonWaveInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGRect c = [self contentRectForRect:rect];
+    NSInteger n = MAX(self.barCount, 10);
+    for (NSInteger layer = 0; layer < 3; layer++) {
+        UIBezierPath *path = [UIBezierPath bezierPath];
+        CGFloat yBase = CGRectGetMinY(c) + CGRectGetHeight(c) * (0.35 + 0.15 * (CGFloat)layer);
+        for (NSInteger i = 0; i <= 40; i++) {
+            CGFloat level = [self levelAtIndex:MIN((NSInteger)((CGFloat)i / 40.0 * (CGFloat)n), n - 1)];
+            CGFloat x = CGRectGetMinX(c) + (CGFloat)i / 40.0 * CGRectGetWidth(c);
+            CGFloat amp = CGRectGetHeight(c) * 0.26 * (0.2 + level);
+            CGFloat y = yBase + sin(_phase * 3.0 + (CGFloat)i * 0.35 + (CGFloat)layer * 1.2) * amp;
+            if (i == 0) [path moveToPoint:CGPointMake(x, y)];
+            else [path addLineToPoint:CGPointMake(x, y)];
+        }
+        UIColor *col = [UIColor colorWithHue:fmod(0.58 + (CGFloat)layer * 0.12 + _phase * 0.06, 1.0)
+                                   saturation:1.0 brightness:1.0
+                                       alpha:1.0 - 0.22 * (CGFloat)layer];
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 8.0, col.CGColor);
+        CGContextSetStrokeColorWithColor(ctx, col.CGColor);
+        path.lineWidth = 2.0 - 0.4 * (CGFloat)layer;
+        [path stroke];
+    }
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+}
+
+/// 21 旋转射线：从中心甩出光束，长度吃电平，整体旋转
+- (void)drawSpokesInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGRect c = [self contentRectForRect:rect];
+    CGPoint mid = CGPointMake(CGRectGetMidX(c), CGRectGetMidY(c));
+    CGFloat maxR = MIN(CGRectGetWidth(c), CGRectGetHeight(c)) * 0.5;
+    NSInteger n = MAX(self.barCount, 8);
+    CGContextSetLineCap(ctx, kCGLineCapRound);
+    for (NSInteger i = 0; i < n; i++) {
+        CGFloat level = MAX([self levelAtIndex:(i % kANVSrcBars)], 0.08f);
+        CGFloat a = (CGFloat)i / (CGFloat)n * 2.0 * (CGFloat)M_PI + _phase * 1.1;
+        CGFloat r = maxR * (0.2 + 0.8 * level);
+        UIColor *col = [self colorForBar:i];
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 8.0 * level, col.CGColor);
+        CGContextSetStrokeColorWithColor(ctx, col.CGColor);
+        CGContextSetLineWidth(ctx, 2.6);
+        CGContextMoveToPoint(ctx, mid.x + cos(a) * maxR * 0.12, mid.y + sin(a) * maxR * 0.12);
+        CGContextAddLineToPoint(ctx, mid.x + cos(a) * r, mid.y + sin(a) * r);
+        CGContextStrokePath(ctx);
+    }
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+}
+
+/// 22 脉冲光环：三层扩散圆环，半径按电平周期性外扩
+- (void)drawPulseRingInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGRect c = [self contentRectForRect:rect];
+    CGPoint mid = CGPointMake(CGRectGetMidX(c), CGRectGetMidY(c));
+    CGFloat maxR = MIN(CGRectGetWidth(c), CGRectGetHeight(c)) * 0.46;
+    CGFloat bass = MAX([self levelAtIndex:0], 0.08f);
+    for (NSInteger i = 0; i < 3; i++) {
+        CGFloat t = fmod(_phase * 0.45 + (CGFloat)i / 3.0, 1.0);
+        CGFloat r = maxR * (0.18 + t) * (0.7 + 0.5 * bass);
+        CGFloat alpha = (1.0 - t) * (0.35 + 0.6 * bass);
+        UIColor *col = [UIColor colorWithHue:fmod(0.62 + t * 0.5 + _phase * 0.05, 1.0)
+                                   saturation:1.0 brightness:1.0 alpha:alpha];
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 9.0, col.CGColor);
+        CGContextSetStrokeColorWithColor(ctx, col.CGColor);
+        CGContextSetLineWidth(ctx, 2.2);
+        CGContextAddEllipseInRect(ctx, CGRectMake(mid.x - r, mid.y - r, r * 2, r * 2));
+        CGContextStrokePath(ctx);
+    }
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+}
+
+/// 23 横向流星：光条横向飞过，亮度吃电平
+- (void)drawMeteorInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGRect c = [self contentRectForRect:rect];
+    NSInteger n = MAX(self.barCount, 8);
+    for (NSInteger i = 0; i < n; i++) {
+        CGFloat level = MAX([self levelAtIndex:(i % kANVSrcBars)], 0.08f);
+        CGFloat y = CGRectGetMinY(c) + ((CGFloat)i + 0.5) / (CGFloat)n * CGRectGetHeight(c);
+        CGFloat x = CGRectGetMinX(c) + fmod(_phase * (70.0 + 30.0 * (CGFloat)(i % 3)) + (CGFloat)i * 60.0,
+                                           CGRectGetWidth(c) + 60.0) - 30.0;
+        CGFloat len = 16.0 + 44.0 * level;
+        CGFloat h = 1.4 + 2.2 * level;
+        UIColor *col = [self colorForBar:i];
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 8.0 * level, col.CGColor);
+        CGContextSetStrokeColorWithColor(ctx, col.CGColor);
+        CGContextSetLineWidth(ctx, h);
+        CGContextMoveToPoint(ctx, x, y);
+        CGContextAddLineToPoint(ctx, x + len, y);
+        CGContextStrokePath(ctx);
+        CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:1.0 alpha:0.85].CGColor);
+        CGContextFillEllipseInRect(ctx, CGRectMake(x + len - 1.6, y - 1.6, 3.2, 3.2));
+    }
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+}
+
+/// 24 对称羽翼：以中线为中心左右对称展开的羽状光柱
+- (void)drawWingsInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGRect c = [self contentRectForRect:rect];
+    CGPoint mid = CGPointMake(CGRectGetMidX(c), CGRectGetMidY(c));
+    NSInteger half = MAX(self.barCount / 2, 4);
+    CGFloat slot = CGRectGetWidth(c) / 2.0 / (CGFloat)half;
+    for (NSInteger i = 0; i < half; i++) {
+        CGFloat level = MAX([self levelAtIndex:(i * 2) % kANVSrcBars], 0.08f);
+        CGFloat len = CGRectGetHeight(c) * 0.46 * (0.2 + level);
+        UIColor *col = [self colorForBar:i * 2];
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 8.0 * level, col.CGColor);
+        CGContextSetStrokeColorWithColor(ctx, col.CGColor);
+        CGContextSetLineWidth(ctx, MAX(1.2, slot * 0.55));
+        for (NSInteger sgn = -1; sgn <= 1; sgn += 2) {
+            CGFloat a = (CGFloat)M_PI + sgn * ((CGFloat)i / (CGFloat)half) * 0.75;
+            CGContextMoveToPoint(ctx, mid.x, mid.y);
+            CGContextAddLineToPoint(ctx, mid.x + cos(a) * len, mid.y - sin(a) * len * 0.55);
+            CGContextStrokePath(ctx);
+        }
+    }
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+}
+
+/// 25 等离子云：几团软光斑叠加，颜色跟电平走
+- (void)drawPlasmaInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGRect c = [self contentRectForRect:rect];
+    NSInteger blobs = 5;
+    for (NSInteger i = 0; i < blobs; i++) {
+        CGFloat level = MAX([self levelAtIndex:(NSInteger)(i * kANVSrcBars / blobs)], 0.1f);
+        CGFloat x = CGRectGetMinX(c) + CGRectGetWidth(c) *
+                    (0.2 + 0.6 * (0.5 + 0.5 * sin(_phase * 1.3 + (CGFloat)i * 1.7)));
+        CGFloat y = CGRectGetMidY(c) + sin(_phase * 1.9 + (CGFloat)i * 2.1) * CGRectGetHeight(c) * 0.22;
+        CGFloat r = CGRectGetHeight(c) * (0.18 + 0.32 * level);
+        UIColor *col = [UIColor colorWithHue:fmod(0.68 + (CGFloat)i * 0.06 + _phase * 0.04, 1.0)
+                                   saturation:0.9 brightness:1.0
+                                       alpha:0.35 + 0.5 * level];
+        CGGradientRef g = CGGradientCreateWithColors(NULL, (__bridge CFArrayRef)
+            @[(id)col.CGColor, (id)[col colorWithAlphaComponent:0.0].CGColor], NULL);
+        CGContextDrawRadialGradient(ctx, g, CGPointMake(x, y), 0,
+                                   CGPointMake(x, y), r, 0);
+        CGGradientRelease(g);
+    }
+}
+
+/// 26 激光矩阵：网格点阵按柱位电平点亮
+- (void)drawLaserGridInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGRect c = [self contentRectForRect:rect];
+    NSInteger cols = MAX(self.barCount, 8);
+    NSInteger rows = 3;
+    CGFloat cw = CGRectGetWidth(c) / (CGFloat)cols;
+    CGFloat ch = CGRectGetHeight(c) / (CGFloat)rows;
+    for (NSInteger y = 0; y < rows; y++) {
+        for (NSInteger x = 0; x < cols; x++) {
+            CGFloat level = [self levelAtIndex:(x % kANVSrcBars)];
+            CGFloat lit = MIN(1.0, MAX(0.0, level * 1.6 - (CGFloat)(rows - 1 - y) * 0.28));
+            if (lit <= 0.02) continue;
+            CGFloat dot = 1.1 + 2.0 * lit;
+            UIColor *col = [UIColor colorWithHue:fmod(0.72 + (CGFloat)x * 0.03 + _phase * 0.06, 1.0)
+                                       saturation:0.85 brightness:1.0 alpha:0.35 + 0.6 * lit];
+            CGContextSetShadowWithColor(ctx, CGSizeZero, 6.0 * lit, col.CGColor);
+            CGContextSetFillColorWithColor(ctx, col.CGColor);
+            CGContextFillEllipseInRect(ctx, CGRectMake(CGRectGetMinX(c) + ((CGFloat)x + 0.5) * cw - dot,
+                                                       CGRectGetMinY(c) + ((CGFloat)y + 0.5) * ch - dot,
+                                                       dot * 2, dot * 2));
+        }
+    }
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+}
+
+/// 27 心跳光带：一条随低频起伏的主光带 + 两端流光
+- (void)drawBeatBeamInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGRect c = [self contentRectForRect:rect];
+    CGFloat bass = MAX([self levelAtIndex:0], 0.06f);
+    CGFloat mid = [self levelAtIndex:kANVSrcBars / 2];
+    CGFloat h = CGRectGetHeight(c) * (0.10 + 0.36 * bass);
+    CGFloat y = CGRectGetMidY(c) - h / 2.0;
+    UIColor *col = [UIColor colorWithHue:fmod(0.55 + bass * 0.35 + _phase * 0.05, 1.0)
+                               saturation:1.0 brightness:1.0 alpha:0.9];
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 14.0 * bass, col.CGColor);
+    UIBezierPath *beam = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(CGRectGetMinX(c) + 2, y,
+                                                            CGRectGetWidth(c) - 4, h) cornerRadius:h / 2.0];
+    [[col colorWithAlphaComponent:0.75] setFill];
+    [beam fill];
+    CGFloat lit = 0.4 + 0.6 * mid;
+    CGFloat x = CGRectGetMinX(c) + 2 + (CGRectGetWidth(c) - 4) *
+                (0.5 + 0.5 * sin(_phase * 2.6));
+    UIColor *spark = [UIColor colorWithWhite:1.0 alpha:lit];
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 10.0, spark.CGColor);
+    CGContextSetFillColorWithColor(ctx, spark.CGColor);
+    CGContextFillEllipseInRect(ctx, CGRectMake(x - h * 0.6, CGRectGetMidY(c) - h * 0.6, h * 1.2, h * 1.2));
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+}
+
 - (void)drawRect:(CGRect)rect {
     CGContextRef ctx = UIGraphicsGetCurrentContext();
     if (!ctx) return;
@@ -670,6 +910,36 @@
             break;
         case ANVSpectrumStyleRainStreak:
             [self drawRainStreakInContext:ctx rect:rect];
+            break;
+        case ANVSpectrumStyleHelix:
+            [self drawHelixInContext:ctx rect:rect];
+            break;
+        case ANVSpectrumStyleBurst:
+            [self drawBurstInContext:ctx rect:rect];
+            break;
+        case ANVSpectrumStyleNeonWave:
+            [self drawNeonWaveInContext:ctx rect:rect];
+            break;
+        case ANVSpectrumStyleSpokes:
+            [self drawSpokesInContext:ctx rect:rect];
+            break;
+        case ANVSpectrumStylePulseRing:
+            [self drawPulseRingInContext:ctx rect:rect];
+            break;
+        case ANVSpectrumStyleMeteor:
+            [self drawMeteorInContext:ctx rect:rect];
+            break;
+        case ANVSpectrumStyleWings:
+            [self drawWingsInContext:ctx rect:rect];
+            break;
+        case ANVSpectrumStylePlasma:
+            [self drawPlasmaInContext:ctx rect:rect];
+            break;
+        case ANVSpectrumStyleLaserGrid:
+            [self drawLaserGridInContext:ctx rect:rect];
+            break;
+        case ANVSpectrumStyleBeatBeam:
+            [self drawBeatBeamInContext:ctx rect:rect];
             break;
         default:
             [self drawBarsInContext:ctx rect:rect mirrored:NO];
