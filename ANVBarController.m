@@ -540,7 +540,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     CGFloat glyph = 44.0 * scale;
     CGFloat spacing = 10.0 * scale;
     CGFloat padH = 14.0 * scale;
-    CGFloat padV = 10.0 * scale;
+    CGFloat padV = [ANVSettings shared].edgeToEdge ? 1.5 * scale : 4.0 * scale;   // 贴屏边时几乎不留缝
     CGFloat barHeight = glyph + padV * 2;
 
     self.barView = [[UIView alloc] initWithFrame:CGRectMake(0, 0,
@@ -570,7 +570,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     // 真频谱放最底层，图标在上层
     if (settings.spectrumEnabled) {
-        CGRect spectrumFrame = CGRectInset(self.barView.bounds, padH + 6, padV + 6);
+        // 铺满整条：频谱占满导航条的宽和高，柱子按条长均分
+        CGRect spectrumFrame = self.barView.bounds;
         self.spectrumView = [[ANVSpectrumView alloc] initWithFrame:spectrumFrame];
         self.spectrumView.style = (ANVSpectrumStyle)settings.spectrumStyle;
         self.spectrumView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;

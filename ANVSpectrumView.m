@@ -39,9 +39,16 @@
                  start:(CGFloat *)startX
                barWidth:(CGFloat *)barWidth
                    gap:(CGFloat *)gap {
-    CGFloat bw = 4.0;
-    CGFloat gp = 2.0;
-    CGFloat total = kANVSpectrumBars * bw + (kANVSpectrumBars - 1) * gp;
+    // 原来写死 4pt 柱宽 + 2pt 间距，10 根只有 58pt，缩在导航条正中间。
+    // 现在按可用宽度均分，柱宽随条长自适应（条越宽柱子越粗、铺满整条）。
+    NSInteger bars = MAX((NSInteger)kANVSpectrumBars, 1);
+    CGFloat gp = MAX(2.0, width / (CGFloat)bars * 0.22);
+    CGFloat bw = (width - gp * (CGFloat)(bars - 1)) / (CGFloat)bars;
+    if (bw < 1.5) {
+        bw = 1.5;
+        gp = MAX(0.5, (width - bw * (CGFloat)bars) / (CGFloat)MAX(bars - 1, 1));
+    }
+    CGFloat total = bw * (CGFloat)bars + gp * (CGFloat)(bars - 1);
     CGFloat sx = (width - total) / 2.0;
     if (startX) *startX = sx;
     if (barWidth) *barWidth = bw;
