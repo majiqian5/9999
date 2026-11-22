@@ -37,6 +37,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, strong) UIView *pullTab;
 @property (nonatomic, strong) UIView *pullTabPill;
 @property (nonatomic, strong) ANVPetView *petView;
+@property (nonatomic, assign) CGFloat lastLevel;
 @property (nonatomic, strong) ANVLyricsView *lyricsView;
 @property (nonatomic, copy) NSString *nowPlayingTitle;
 @property (nonatomic, assign) BOOL dockedHidden;
@@ -163,7 +164,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 }
 
 - (void)updateLockVisibility {
-    BOOL locked = [self isDeviceLocked];
+    // 设置里允许「锁屏也显示」时，锁屏就不隐藏
+    BOOL locked = [self isDeviceLocked] && ![ANVSettings shared].showOnLockScreen;
     if (locked == self.barView.hidden) return;   // 状态没变
     self.barView.hidden = locked;
     self.pullTab.hidden = (locked || !self.dockedHidden);
@@ -285,18 +287,36 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 }
 
 - (void)directionTapped:(UIButton *)sender {
+    // 直接按点移动，横排竖排都生效（之前按屏高百分比算，位置锁定时会被夹回去看着像没反应）
+    CGFloat step = 14.0;
     CGFloat dx = 0, dy = 0;
     switch (sender.tag) {
-        case 100: dy = -0.01; break;
-        case 101: dy = 0.01; break;
-        case 102: dx = -0.01; break;
-        default: dx = 0.01; break;
+        case 100: dy = -step; break;
+        case 101: dy = step; break;
+        case 102: dx = -step; break;
+        default: dx = step; break;
     }
-    ANVSettings *settings = [ANVSettings shared];
-    [settings saveCenter:CGPointMake(settings.centerX + dx, settings.centerY + dy)];
-    [self updateFrame];
 
-    if (settings.haptics) {
+    CGRect screen = [UIScreen mainScreen].bounds;
+    CGSize bar = self.barView.bounds.size;
+    CGPoint center = self.barView.center;
+    center.x += dx;
+    center.y += dy;
+
+    // 竖排时允许贴到左右边缘；横排时允许贴到底边
+    CGFloat halfW = bar.width / 2.0;
+    CGFloat halfH = bar.height / 2.0;
+    center.x = MIN(MAX(center.x, halfW), screen.size.width - halfW);
+    center.y = MIN(MAX(center.y, halfH), screen.size.height - halfH);
+    self.barView.center = center;
+
+    CGFloat nx = center.x / MAX(1.0, screen.size.width);
+    CGFloat ny = center.y / MAX(1.0, screen.size.height);
+    [[ANVSettings shared] saveCenter:CGPointMake(nx, ny)];
+
+    [self layoutWidgets];
+
+    if ([ANVSettings shared].haptics) {
         UIImpactFeedbackGenerator *generator =
             [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
         [generator impactOccurred];
@@ -332,6 +352,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"宠物 · %@", st.petEnabled ? @"开" : @"关"],
         [NSString stringWithFormat:@"宠物 %ld%% · 加", (long)lround(st.petScale * 100)],
         [NSString stringWithFormat:@"宠物 %ld%% · 减", (long)lround(st.petScale * 100)],
+        [NSString stringWithFormat:@"宠物造型 · %@", [self petStyleTitle]],
+        [NSString stringWithFormat:@"动作 · %@", [self petActionTitle]],
+        [NSString stringWithFormat:@"锁屏显示 · %@", ([ANVSettings shared].showOnLockScreen ? @"开" : @"关")],
         [NSString stringWithFormat:@"举牌歌词 · %@", st.lyricEnabled ? @"开" : @"关"],
         [NSString stringWithFormat:@"歌词 %ld%% · 加", (long)lround(st.lyricScale * 100)],
         [NSString stringWithFormat:@"歌词 %ld%% · 减", (long)lround(st.lyricScale * 100)],
@@ -344,18 +367,32 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     NSArray *tags = @[@0, @1, @2, @3, @4, @5, @6, @7, @8, @9,
                       @200, @201, @202, @203, @204, @205, @206, @207,
-                      @210, @211, @212, @213, @214, @215, @216,
+                      @210, @211, @212, @213, @217, @218, @219, @214, @215, @216,
                       @10, @11, @13, @14, @15];
 
     if (titles.count > 18) rowH = 30.0;
 
     CGFloat dirRowH = 46.0;
-    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width,
-                                                             rowH * titles.count + dirRowH + 10)];
+    CGFloat contentH = rowH * (CGFloat)titles.count + 8.0;
+    CGFloat screenH = [UIScreen mainScreen].bounds.size.height;
+    CGFloat maxScrollH = MAX(180.0, screenH * 0.66 - dirRowH);
+    CGFloat scrollH = MIN(contentH, maxScrollH);
+    CGFloat panelH = scrollH + dirRowH + 10.0;
+
+    UIView *panel = [[UIView alloc] initWithFrame:CGRectMake(0, 0, width, panelH)];
     panel.backgroundColor = [UIColor colorWithWhite:0.06 alpha:0.94];
     panel.layer.cornerRadius = 14.0;
     panel.layer.borderWidth = 1.0;
     panel.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.12].CGColor;
+
+    // 行太多会超出屏幕，套一层滚动视图，能上下滑
+    UIScrollView *scroll = [[UIScrollView alloc] initWithFrame:CGRectMake(0, 0, width, scrollH)];
+    scroll.contentSize = CGSizeMake(width, MAX(contentH, scrollH));
+    scroll.showsVerticalScrollIndicator = YES;
+    scroll.alwaysBounceVertical = YES;
+    scroll.backgroundColor = [UIColor clearColor];
+    scroll.clipsToBounds = YES;
+    [panel addSubview:scroll];
 
     for (NSUInteger i = 0; i < titles.count; i++) {
         UIButton *row = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -365,19 +402,18 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [row setTitle:titles[i] forState:UIControlStateNormal];
         [row setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
         [row addTarget:self action:@selector(panelRowTapped:) forControlEvents:UIControlEventTouchUpInside];
-        [panel addSubview:row];
+        [scroll addSubview:row];
 
         if (i + 1 < titles.count) {
             UIView *line = [[UIView alloc] initWithFrame:CGRectMake(12, 4 + rowH * (i + 1), width - 24, 0.5)];
             line.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.10];
             line.userInteractionEnabled = NO;
-            [panel addSubview:line];
+            [scroll addSubview:line];
         }
     }
 
     // 上下左右微调行（每个方向按一次移动 1% 屏幕）
-    UIView *dirRow = [[UIView alloc] initWithFrame:CGRectMake(0, 4 + rowH * titles.count,
-                                                             width, dirRowH)];
+    UIView *dirRow = [[UIView alloc] initWithFrame:CGRectMake(0, scrollH + 4, width, dirRowH)];
     NSArray *dirTitles = @[@"↑", @"↓", @"←", @"→"];
     NSArray *dirTags = @[@100, @101, @102, @103];
     CGFloat dirW = 40.0;
@@ -404,13 +440,55 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     // 面板放到全屏容器上，否则超出 bar 边界就收不到点击
     [self.window.rootViewController.view addSubview:panel];
     CGRect barFrame = self.barView.frame;
-    panel.center = CGPointMake(CGRectGetMidX(barFrame),
-                               CGRectGetMinY(barFrame) - CGRectGetHeight(panel.bounds) / 2.0 - 8);
+    CGFloat top = CGRectGetMinY(barFrame) - CGRectGetHeight(panel.bounds) - 8.0;
+    if (top < 60.0) top = 60.0;                       // 不许顶出状态栏
+    if (top + CGRectGetHeight(panel.bounds) > screenH - 8.0) {
+        top = screenH - 8.0 - CGRectGetHeight(panel.bounds);
+    }
+    panel.frame = CGRectMake(([UIScreen mainScreen].bounds.size.width - width) / 2.0,
+                             top, width, CGRectGetHeight(panel.bounds));
 }
 
 - (void)hidePanel {
     [self.panelView removeFromSuperview];
     self.panelView = nil;
+}
+
+- (NSString *)petActionTitle {
+    NSInteger a = [ANVSettings shared].petAction;
+    if (a <= 0) return @"随机";
+    return [ANVPetView titleForAction:a - 1];
+}
+
+- (void)applyPetAction {
+    NSInteger a = [ANVSettings shared].petAction;
+    if (!self.petView) return;
+    if (a <= 0) {
+        [self pickRandomPetAction];
+    } else {
+        self.petView.action = a - 1;
+    }
+}
+
+// 随机动作：有音乐时更爱跳舞/蹦跳，深夜更爱睡觉
+- (void)pickRandomPetAction {
+    if (!self.petView) return;
+    NSUInteger r = arc4random_uniform(17);
+    NSCalendar *cal = [NSCalendar currentCalendar];
+    NSInteger hour = [cal component:NSCalendarUnitHour fromDate:[NSDate date]];
+    if ((hour >= 23 || hour < 7) && arc4random_uniform(100) < 40) r = 9;      // 睡觉
+    if (_lastLevel > 0.55 && arc4random_uniform(100) < 45) r = (arc4random_uniform(2) ? 2 : 10);  // 跳舞/蹦跳
+    self.petView.action = (NSInteger)r;
+    self.petView.partnerStyle = (NSInteger)arc4random_uniform(3);
+}
+
+- (NSString *)petStyleTitle {
+    switch ([ANVSettings shared].petStyle) {
+        case 1: return @"小猫";
+        case 2: return @"小兔";
+        case 3: return @"小熊";
+        default: return @"随机";
+    }
 }
 
 - (NSString *)orientationTitle {
@@ -422,9 +500,6 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 }
 
 - (void)applyWidgetSettings {
-    ANVSettings *st = [ANVSettings shared];
-    self.petView.sizeScale = st.petScale;
-    self.lyricsView.textScale = st.lyricScale;
     [self layoutWidgets];
 }
 
@@ -491,6 +566,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             [self showPanel];
             break;
         }
+        case 218: [settings savePetAction:(settings.petAction + 1) % 18]; [self applyPetAction]; [self hidePanel]; [self showPanel]; break;
+        case 219: [settings saveShowOnLockScreen:!settings.showOnLockScreen]; [self updateLockVisibility]; [self hidePanel]; [self showPanel]; break;
+        case 217: [settings savePetStyle:(settings.petStyle + 1) % 4]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 210: [settings saveBarOrientation:(settings.barOrientation + 1) % 3]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 211: [settings savePetEnabled:!settings.petEnabled]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 212: [settings savePetScale:settings.petScale + 0.1]; [self applyWidgetSettings]; [self hidePanel]; [self showPanel]; break;
@@ -796,8 +874,33 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     [self.spectrumView advancePhase:delta];
 
     if (self.petView) {
+        _lastLevel = levels[0];
         self.petView.energy = levels[0];
         [self.petView advancePhase:delta];
+        // 随机模式：每 6~13 秒换一个动作；跳舞时还会被强拍带着多跳两下
+        static CFTimeInterval lastAction = 0;
+        static CFTimeInterval actionSpan = 8.0;
+        static CGFloat lastBeat = 0.0;
+        CFTimeInterval nowA = CACurrentMediaTime();
+        if (lastAction == 0) { lastAction = nowA; actionSpan = 8.0; }
+        if ([ANVSettings shared].petAction == 0 && nowA - lastAction > actionSpan) {
+            lastAction = nowA;
+            actionSpan = 6.0 + (CFTimeInterval)arc4random_uniform(8);
+            [self pickRandomPetAction];
+        }
+        if (self.petView.action == 2) {
+            // 强拍（电平突然抬头）时重新起跳，看起来是真的跟节奏
+            if (levels[0] > 0.75 && lastBeat < 0.45) {
+                self.petView.action = 2;
+            }
+            lastBeat = levels[0];
+        }
+        static CFTimeInterval lastPetLyric = 0;
+        CFTimeInterval nowP = CACurrentMediaTime();
+        if (nowP - lastPetLyric > 4.0) {
+            lastPetLyric = nowP;
+            self.petView.lyricText = [ANVSettings shared].lyricEnabled ? [self currentLyricLine] : nil;
+        }
     }
     if (self.lyricsView) {
         [self.lyricsView advancePhase:delta];
@@ -827,9 +930,15 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     if (st.petEnabled) {
         self.petView = [[ANVPetView alloc] initWithFrame:CGRectMake(0, 0, 40, 40)];
         self.petView.sizeScale = st.petScale;
+        NSInteger style = st.petStyle;
+        if (style == 0) style = 1 + (NSInteger)(arc4random_uniform(3));   // 每次重建随机挑一只
+        self.petView.style = style - 1;
+        self.petView.partnerStyle = (NSInteger)arc4random_uniform(3);
+        NSInteger pa = st.petAction;
+        self.petView.action = (pa <= 0) ? (NSInteger)arc4random_uniform(17) : (pa - 1);
         [self.window.rootViewController.view addSubview:self.petView];
     }
-    if (st.lyricEnabled) {
+    if (st.lyricEnabled && !st.petEnabled) {
         self.lyricsView = [[ANVLyricsView alloc] initWithFrame:CGRectMake(0, 0, 240, 28)];
         self.lyricsView.textScale = st.lyricScale;
         self.lyricsView.text = [self currentLyricLine];
@@ -847,9 +956,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         NSMutableArray *valid = [NSMutableArray array];
         for (NSString *l in lines) if (l.length) [valid addObject:l];
         if (valid.count) {
-            static NSInteger idx = 0;
-            idx = (idx + 1) % (NSInteger)valid.count;
-            return valid[(NSUInteger)idx];
+            // 随机举牌：每次随机挑一句，不再固定顺序
+            NSUInteger idx = arc4random_uniform((uint32_t)valid.count);
+            return valid[idx];
         }
     }
     if (self.nowPlayingTitle.length) return self.nowPlayingTitle;
@@ -857,33 +966,50 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 }
 
 - (void)layoutWidgets {
-    if (!self.petView && !self.lyricsView) return;
+    ANVSettings *st = [ANVSettings shared];
+    BOOL vertical = (st.barOrientation != 0);
     CGRect bar = self.barView.frame;
-    BOOL vertical = ([ANVSettings shared].barOrientation != 0);
     CGFloat thickness = vertical ? bar.size.width : bar.size.height;
 
-    CGFloat lyricH = MAX(22.0, 30.0 * [ANVSettings shared].lyricScale);
-    CGFloat lyricW = vertical ? MIN(200.0, thickness * 6.0) : MIN(bar.size.width * 0.92, 300.0);
-    CGFloat petSize = thickness * 1.15 * [ANVSettings shared].petScale;
+    CGFloat petSide = thickness * 1.15 * st.petScale;
+    CGFloat lyricH = MAX(20.0, 24.0 * st.lyricScale);
+    CGFloat lyricW = MAX(96.0, 132.0 * st.lyricScale);
+    NSString *line = st.lyricEnabled ? [self currentLyricLine] : nil;
+    BOOL onLeftHalf = (CGRectGetMidX(bar) < [UIScreen mainScreen].bounds.size.width / 2.0);
 
-    if (vertical) {
-        CGFloat inner = (bar.origin.x < 10) ? 1.0 : -1.0;
-        self.lyricsView.frame = CGRectMake(inner > 0 ? CGRectGetMaxX(bar) + 6
-                                                    : CGRectGetMinX(bar) - lyricW - 6,
-                                          CGRectGetMidY(bar) - lyricH / 2.0, lyricW, lyricH);
-        self.petView.frame = CGRectMake(inner > 0 ? CGRectGetMaxX(bar) + 6
-                                                  : CGRectGetMinX(bar) - petSize - 6,
-                                        CGRectGetMinY(self.lyricsView.frame) - petSize - 4,
-                                        petSize, petSize);
-    } else {
-        self.lyricsView.frame = CGRectMake(CGRectGetMidX(bar) - lyricW / 2.0,
-                                           CGRectGetMinY(bar) - lyricH - 6,
-                                           lyricW, lyricH);
-        self.petView.frame = CGRectMake(CGRectGetMinX(bar) - petSize * 0.25,
-                                        CGRectGetMinY(bar) - petSize + 4,
-                                        petSize, petSize);
+    if (self.petView) {
+        CGFloat signW = line.length ? lyricW : 0.0;
+        CGFloat petW = petSide + signW;
+        CGFloat petH = petSide;
+        self.petView.sizeScale = st.petScale;
+        self.petView.textScale = st.lyricScale;
+        self.petView.lyricText = line;
+
+        CGPoint center;
+        if (vertical) {
+            center = CGPointMake(onLeftHalf ? CGRectGetMaxX(bar) + petW / 2.0 + 4.0
+                                            : CGRectGetMinX(bar) - petW / 2.0 - 4.0,
+                                 CGRectGetMidY(bar));
+        } else {
+            center = CGPointMake(CGRectGetMinX(bar) + petW / 2.0,
+                                 CGRectGetMinY(bar) - petH / 2.0 + 4.0);
+        }
+        self.petView.bounds = CGRectMake(0, 0, petW, petH);
+        self.petView.center = center;
     }
-    self.petView.center = CGPointMake(self.petView.center.x, self.petView.center.y);
+
+    if (self.lyricsView) {
+        self.lyricsView.textScale = st.lyricScale;
+        self.lyricsView.bounds = CGRectMake(0, 0, lyricW, lyricH);
+        if (vertical) {
+            self.lyricsView.center = CGPointMake(onLeftHalf ? CGRectGetMaxX(bar) + lyricW / 2.0 + 6.0
+                                                            : CGRectGetMinX(bar) - lyricW / 2.0 - 6.0,
+                                                 CGRectGetMidY(bar));
+        } else {
+            self.lyricsView.center = CGPointMake(CGRectGetMidX(bar),
+                                                 CGRectGetMinY(bar) - lyricH / 2.0 - 8.0);
+        }
+    }
 }
 
 - (void)updateFrame {

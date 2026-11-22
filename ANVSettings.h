@@ -30,6 +30,9 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 @property (nonatomic, readonly) NSInteger barOrientation;  // 0 底部横 / 1 左侧竖 / 2 右侧竖
 @property (nonatomic, readonly) BOOL petEnabled;
 @property (nonatomic, readonly) CGFloat petScale;
+@property (nonatomic, readonly) NSInteger petStyle;      // 0 随机 1 小猫 2 小兔 3 小熊
+@property (nonatomic, readonly) NSInteger petAction;     // 0 随机 1~17 固定动作
+@property (nonatomic, readonly) BOOL showOnLockScreen;
 @property (nonatomic, readonly) BOOL lyricEnabled;
 @property (nonatomic, readonly) CGFloat lyricScale;
 @property (nonatomic, readonly) CGFloat spectrumWidth;     // 频谱横占比 0.2~1.0
@@ -52,6 +55,9 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 - (void)saveBarOrientation:(NSInteger)o;
 - (void)savePetEnabled:(BOOL)on;
 - (void)savePetScale:(CGFloat)v;
+- (void)savePetStyle:(NSInteger)v;
+- (void)savePetAction:(NSInteger)v;
+- (void)saveShowOnLockScreen:(BOOL)v;
 - (void)saveLyricEnabled:(BOOL)on;
 - (void)saveLyricScale:(CGFloat)v;
 - (void)saveSpectrumWidth:(CGFloat)v;

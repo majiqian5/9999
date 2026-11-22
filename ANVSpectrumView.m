@@ -8,6 +8,12 @@
 
 @implementation ANVSpectrumView {
     float _levels[kANVSrcBars];
+    CGFloat _haloAngle;        // 光环当前转角（累计，跟着频谱变速）
+    CGFloat _haloSpeed;        // 平滑后的角速度
+    NSInteger _haloDir;        // 1 顺时针 -1 逆时针
+    CFTimeInterval _haloFlipAt;
+    CGFloat _haloLastEnergy;
+    CGFloat _haloSmoothEnergy;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -76,7 +82,40 @@
 - (void)advancePhase:(CGFloat)delta {
     _phase += delta;
     if (_phase > 1000.0) _phase = 0;
+    [self advanceHaloWithDelta:delta];
     if (self.style >= ANVSpectrumStyleMarquee) [self setNeedsDisplay];
+}
+
+/// 旋转光环：转速吃真实电平（响的时候转得快、安静时慢慢飘），方向随机翻转
+- (void)advanceHaloWithDelta:(CGFloat)delta {
+    CGFloat sum = 0.0;
+    for (NSUInteger i = 0; i < (NSUInteger)kANVSrcBars; i++) sum += _levels[i];
+    CGFloat energy = sum / (CGFloat)kANVSrcBars;
+
+    // 平滑一下，避免电平抖一下光环就抽一下
+    _haloSmoothEnergy += (energy - _haloSmoothEnergy) * MIN(1.0, delta * 5.0);
+
+    CGFloat target = 0.25 + 5.4 * _haloSmoothEnergy;     // rad/s，最慢 0.25 最快 5.6
+    _haloSpeed += (target - _haloSpeed) * MIN(1.0, delta * 4.0);
+
+    if (_haloDir == 0) {
+        _haloDir = 1;
+        _haloFlipAt = CACurrentMediaTime() + 3.0 + (CFTimeInterval)arc4random_uniform(600) / 100.0;
+    }
+    _haloAngle += (CGFloat)_haloDir * _haloSpeed * delta;
+    if (_haloAngle > 1000.0) _haloAngle = fmod(_haloAngle, 2.0 * (CGFloat)M_PI);
+    if (_haloAngle < -1000.0) _haloAngle = fmod(_haloAngle, 2.0 * (CGFloat)M_PI);
+
+    CFTimeInterval nowH = CACurrentMediaTime();
+    BOOL flip = NO;
+    if (nowH > _haloFlipAt) flip = YES;                                   // 定时随机翻转
+    // 强拍也能提前打断：上一帧还很安静、这一帧突然很响
+    if (_haloSmoothEnergy > 0.45 && _haloLastEnergy < 0.18) flip = YES;
+    if (flip) {
+        _haloDir = -_haloDir;
+        _haloFlipAt = nowH + 3.0 + (CFTimeInterval)arc4random_uniform(600) / 100.0;
+    }
+    _haloLastEnergy = _haloSmoothEnergy;
 }
 
 #pragma mark - 取值 / 配色
@@ -383,23 +422,48 @@
     CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
 }
 
-/// 光环：一圈绕一轴旋转的亮点
+/// 旋转光环：椭圆轨道上的亮点，转角跟频谱驱动（顺时针/逆时针随机换向）
 - (void)drawHaloInContext:(CGContextRef)ctx rect:(CGRect)rect {
     CGRect content = [self contentRectForRect:rect];
     NSInteger n = MAX(self.barCount, 10);
     CGFloat rx = CGRectGetWidth(content) * 0.46;
     CGFloat ry = CGRectGetHeight(content) * 0.44;
-    for (NSInteger i = 0; i < n; i++) {
-        CGFloat angle = _phase * 1.8 + (CGFloat)i / (CGFloat)n * M_PI * 2.0;
-        CGFloat level = MAX([self levelAtIndex:(i % kANVSrcBars)], 0.15f);
-        CGFloat x = CGRectGetMidX(content) + cos(angle) * rx;
-        CGFloat y = CGRectGetMidY(content) + sin(angle) * ry;
-        CGFloat dot = 1.6 + 2.6 * level;
-        UIColor *color = [self colorForBar:i];
-        CGContextSetShadowWithColor(ctx, CGSizeZero, 7.0, color.CGColor);
-        CGContextSetFillColorWithColor(ctx, color.CGColor);
-        CGContextFillEllipseInRect(ctx, CGRectMake(x - dot, y - dot, dot * 2.0, dot * 2.0));
+
+    // 轨道底环：一圈很淡的线，让旋转看得出来
+    UIBezierPath *track = [UIBezierPath bezierPathWithOvalInRect:
+        CGRectInset(content, CGRectGetWidth(content) * 0.04, CGRectGetHeight(content) * 0.06)];
+    [[UIColor colorWithHue:0.75 saturation:0.5 brightness:1.0 alpha:0.10 + 0.10 * _haloSmoothEnergy] setStroke];
+    track.lineWidth = 1.0;
+    [track stroke];
+
+    // 拖影：越靠后的点越暗越小，看起来在转
+    for (NSInteger pass = 2; pass >= 0; pass--) {
+        CGFloat trail = (CGFloat)pass * 0.16;
+        CGFloat alpha = pass == 0 ? 1.0 : (0.36 - 0.12 * (CGFloat)pass);
+        CGFloat scale = pass == 0 ? 1.0 : 0.72;
+        for (NSInteger i = 0; i < n; i++) {
+            CGFloat angle = _haloAngle + (CGFloat)i / (CGFloat)n * 2.0 * (CGFloat)M_PI
+                            - (CGFloat)_haloDir * trail;
+            CGFloat level = MAX([self levelAtIndex:(i % kANVSrcBars)], 0.12f);
+            CGFloat x = CGRectGetMidX(content) + cos(angle) * rx;
+            CGFloat y = CGRectGetMidY(content) + sin(angle) * ry;
+            CGFloat dot = (1.5 + 3.2 * level) * scale;
+            UIColor *color = [[self colorForBar:i] colorWithAlphaComponent:alpha];
+            CGContextSetShadowWithColor(ctx, CGSizeZero, 7.0 * (0.5 + level), color.CGColor);
+            CGContextSetFillColorWithColor(ctx, color.CGColor);
+            CGContextFillEllipseInRect(ctx, CGRectMake(x - dot, y - dot, dot * 2.0, dot * 2.0));
+        }
     }
+
+    // 中心小光球：亮度跟电平
+    CGFloat coreR = 2.0 + 4.0 * _haloSmoothEnergy;
+    UIColor *core = [UIColor colorWithHue:fmod(0.72 + _haloSmoothEnergy * 0.2, 1.0)
+                                saturation:0.85 brightness:1.0 alpha:0.9];
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 10.0, core.CGColor);
+    CGContextSetFillColorWithColor(ctx, core.CGColor);
+    CGContextFillEllipseInRect(ctx, CGRectMake(CGRectGetMidX(content) - coreR,
+                                               CGRectGetMidY(content) - coreR,
+                                               coreR * 2.0, coreR * 2.0));
     CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
 }
 
