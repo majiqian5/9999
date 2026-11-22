@@ -1044,7 +1044,13 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         CFTimeInterval nowP = CACurrentMediaTime();
         if (nowP - lastPetLyric > 4.0) {
             lastPetLyric = nowP;
-            self.petView.lyricText = [self bubbleText];
+            NSString *newText = [self bubbleText];
+            BOOL wasShown = (self.petView.lyricText.length > 0);
+            BOOL nowShown = (newText.length > 0);
+            if (![newText isEqualToString:self.petView.lyricText] || wasShown != nowShown) {
+                self.petView.lyricText = newText;
+                if ([ANVSettings shared].bubbleAutoFit) [self layoutWidgets];
+            }
             static CFTimeInterval lastInfo = 0;
             CFTimeInterval nowI = CACurrentMediaTime();
             NSDictionary *npNow = [self nowBridge];
@@ -1204,9 +1210,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             CGFloat fitH = MIN(MAX(st.bubbleH, 16.0), 44.0);
             UIFont *fitFont = [UIFont systemFontOfSize:MAX(7.0, fitH * 0.48 * st.lyricScale)
                                                        weight:UIFontWeightMedium];
-            CGFloat tw = [line sizeWithAttributes:@{NSFontAttributeName: fitFont}].width + 20.0;
-            CGFloat cap = MIN(screenSz.width * 0.80, MAX(st.bubbleW, 60.0));
-            lyricW = MIN(MAX(tw, 56.0), cap);
+            CGFloat tw = [line sizeWithAttributes:@{NSFontAttributeName: fitFont}].width + 22.0;
+            CGFloat cap = MIN(screenSz.width * 0.86, 400.0);
+            lyricW = MIN(MAX(tw, 44.0), cap);
         } else {
             lyricW = 0.0;
         }

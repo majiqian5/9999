@@ -426,68 +426,82 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
                        MAX(7.0, CGRectGetHeight(board) * 0.48 * self.textScale),
                        _phase, YES);
 
-    [self drawBubbleRingInContext:ctx board:board];
+    [self drawBubbleProgressInContext:ctx board:board];
 }
 
 /// 气泡彩虹边框 = 歌曲进度环：九色环绕，随歌曲时间越走越短
-- (void)drawBubbleRingInContext:(CGContextRef)ctx board:(CGRect)board {
-    CGRect ring = CGRectInset(board, 1.2, 1.2);
-    if (CGRectGetWidth(ring) < 12.0 || CGRectGetHeight(ring) < 8.0) return;
+/// 圆角矩形周长取点：d 为从左上角起顺时针走的距离
+static CGPoint ANVRoundRectPoint(CGRect r, CGFloat rad, CGFloat d) {
+    CGFloat w = CGRectGetWidth(r), h = CGRectGetHeight(r);
+    rad = MIN(rad, MIN(w, h) / 2.0);
+    CGFloat L1 = MAX(w - 2.0 * rad, 0.0);        // 上下直边
+    CGFloat L2 = MAX(h - 2.0 * rad, 0.0);        // 左右直边
+    CGFloat arc = (CGFloat)M_PI_2 * rad;
 
-    CGFloat w = CGRectGetWidth(ring), h = CGRectGetHeight(ring);
-    CGPoint c = CGPointMake(CGRectGetMidX(ring), CGRectGetMidY(ring));
+    CGFloat segs[8] = {L1, arc, L2, arc, L1, arc, L2, arc};
+    CGFloat dd = fmod(d, 2.0 * L1 + 2.0 * L2 + 4.0 * arc);
+    if (dd < 0) dd += 2.0 * L1 + 2.0 * L2 + 4.0 * arc;
+    NSInteger i = 0;
+    while (i < 8 && dd > segs[i]) { dd -= segs[i]; i++; }
+
+    CGFloat minX = CGRectGetMinX(r), minY = CGRectGetMinY(r);
+    CGFloat maxX = CGRectGetMaxX(r), maxY = CGRectGetMaxY(r);
+    switch (i) {
+        case 0: return CGPointMake(minX + rad + dd, minY);                       // 上边
+        case 1: { CGFloat a = -M_PI_2 + dd / MAX(rad, 0.001);
+                  return CGPointMake(maxX - rad + rad * cos(a), minY + rad + rad * sin(a)); }
+        case 2: return CGPointMake(maxX, minY + rad + dd);                       // 右边
+        case 3: { CGFloat a = dd / MAX(rad, 0.001);
+                  return CGPointMake(maxX - rad + rad * cos(a), maxY - rad + rad * sin(a)); }
+        case 4: return CGPointMake(maxX - rad - dd, maxY);                       // 下边
+        case 5: { CGFloat a = M_PI_2 + dd / MAX(rad, 0.001);
+                  return CGPointMake(minX + rad + rad * cos(a), maxY - rad + rad * sin(a)); }
+        case 6: return CGPointMake(minX, maxY - rad - dd);                       // 左边
+        default: { CGFloat a = M_PI + dd / MAX(rad, 0.001);
+                  return CGPointMake(minX + rad + rad * cos(a), minY + rad + rad * sin(a)); }
+    }
+}
+
+/// 歌曲进度直接画在气泡原有的紫色边框上（不额外加框）
+- (void)drawBubbleProgressInContext:(CGContextRef)ctx board:(CGRect)board {
+    CGRect r = CGRectInset(board, 0.6, 0.6);
+    if (CGRectGetWidth(r) < 16.0 || CGRectGetHeight(r) < 12.0) return;
+    CGFloat rad = MIN(CGRectGetHeight(r) / 2.0, 11.0);
+
+    if (!self.songProgressValid) return;      // 没有歌曲就保持原紫色描边
 
     static CGFloat const hues[9] = {0.00, 0.09, 0.14, 0.33, 0.48, 0.58, 0.72, 0.88, 0.00};
     static CGFloat const sats[9] = {0.95, 1.00, 0.95, 1.00, 0.90, 0.95, 0.85, 0.80, 0.00};
 
-    CGContextSaveGState(ctx);
-    CGContextTranslateCTM(ctx, c.x, c.y);
-    CGContextScaleCTM(ctx, w / h, 1.0);           // 椭圆化
+    CGFloat w = CGRectGetWidth(r), h = CGRectGetHeight(r);
+    CGFloat P = 2.0 * MAX(w - 2.0 * rad, 0.0) + 2.0 * MAX(h - 2.0 * rad, 0.0)
+                + 4.0 * (CGFloat)M_PI_2 * rad;
+    CGFloat remain = MAX(0.0, 1.0 - MIN(MAX(self.songProgress, 0.0), 1.0));
+    CGFloat span = P * remain;
+    if (span < 2.0) return;
 
-    CGFloat radius = h / 2.0 - 1.0;
-    CGFloat startAngle = (CGFloat)M_PI_2 * 1.0;   // 从正上方开始顺时针收
-    CGFloat remain = self.songProgressValid
-        ? MAX(0.0, 1.0 - MIN(MAX(self.songProgress, 0.0), 1.0))
-        : 1.0;
-
-    // 底轨
-    CGContextSetStrokeColorWithColor(ctx,
-        [UIColor colorWithWhite:1.0 alpha:0.18 * MAX(self.bubbleAlpha, 0.35)].CGColor);
-    CGContextSetLineWidth(ctx, 1.6);
-    CGContextAddArc(ctx, 0, 0, radius, 0.0, 2.0 * (CGFloat)M_PI, 1);
-    CGContextStrokePath(ctx);
-
-    // 九色段
-    NSInteger segs = 48;
-    CGFloat span = 2.0 * (CGFloat)M_PI * remain;
-    if (span > 0.4) {
-        CGFloat glow = 0.55 + 0.45 * self.songProgressValid * (1.0 - remain) * 0.0;  // 保持稳定亮度
-        glow = 0.95;
-        for (NSInteger i = 0; i < segs; i++) {
-            CGFloat a0 = startAngle + span * (CGFloat)i / (CGFloat)segs;
-            CGFloat a1 = startAngle + span * (CGFloat)(i + 1) / (CGFloat)segs + 0.012;
-            NSInteger ci = (NSInteger)(i * 9 / segs + (NSInteger)floor(_phase * 3.0)) % 9;
-            if (ci < 0) ci += 9;
-            UIColor *col = [UIColor colorWithHue:hues[ci] saturation:sats[ci]
-                                      brightness:1.0 alpha:glow];
-            CGContextSetShadowWithColor(ctx, CGSizeZero, 4.0, col.CGColor);
-            CGContextSetStrokeColorWithColor(ctx, col.CGColor);
-            CGContextSetLineWidth(ctx, 2.2);
-            CGContextAddArc(ctx, 0, 0, radius, a0, a1, 0);
-            CGContextStrokePath(ctx);
-        }
-        CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
-
-        // 头部亮点
-        CGFloat headAngle = startAngle + span;
-        CGPoint head = CGPointMake(cos(headAngle) * radius, sin(headAngle) * radius);
-        UIColor *headCol = [UIColor colorWithWhite:1.0 alpha:0.95];
-        CGContextSetShadowWithColor(ctx, CGSizeZero, 6.0, headCol.CGColor);
-        CGContextSetFillColorWithColor(ctx, headCol.CGColor);
-        CGFloat hw = 1.9 * (h / w);   // 抵消上面的横向拉伸
-        CGContextFillEllipseInRect(ctx, CGRectMake(head.x - hw, head.y - 1.9, hw * 2.0, 3.8));
+    NSInteger segs = MAX(24, MIN(96, (NSInteger)(span / 3.0)));
+    for (NSInteger i = 0; i < segs; i++) {
+        CGFloat d0 = span * (CGFloat)i / (CGFloat)segs;
+        CGFloat d1 = span * (CGFloat)(i + 1) / (CGFloat)segs + 0.8;
+        CGPoint p0 = ANVRoundRectPoint(r, rad, d0);
+        CGPoint p1 = ANVRoundRectPoint(r, rad, d1);
+        NSInteger ci = (NSInteger)(i * 9 / segs) % 9;
+        UIColor *col = [UIColor colorWithHue:hues[ci] saturation:sats[ci]
+                                  brightness:1.0 alpha:0.95];
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 4.0, col.CGColor);
+        CGContextSetStrokeColorWithColor(ctx, col.CGColor);
+        CGContextSetLineWidth(ctx, 1.9);
+        CGContextMoveToPoint(ctx, p0.x, p0.y);
+        CGContextAddLineToPoint(ctx, p1.x, p1.y);
+        CGContextStrokePath(ctx);
     }
-    CGContextRestoreGState(ctx);
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+
+    // 进度头亮点
+    CGPoint head = ANVRoundRectPoint(r, rad, span);
+    CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:1.0 alpha:0.95].CGColor);
+    CGContextFillEllipseInRect(ctx, CGRectMake(head.x - 2.2, head.y - 2.2, 4.4, 4.4));
 }
 
 - (void)drawPetInContext:(CGContextRef)ctx rect:(CGRect)rect
