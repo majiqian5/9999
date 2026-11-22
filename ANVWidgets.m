@@ -8,13 +8,24 @@ static void ANVDrawRainbowText(NSString *text, CGRect rect, CGFloat fontSize,
     UIFont *font = [UIFont systemFontOfSize:fontSize weight:UIFontWeightHeavy];
     NSDictionary *attrs = @{NSFontAttributeName: font};
     CGSize size = [text sizeWithAttributes:attrs];
+    CGFloat avail = CGRectGetWidth(rect) - 8.0;
+
+    // 只有装不下才滚，装得下就居中定住
     CGFloat x = CGRectGetMinX(rect) + 4.0;
     CGFloat y = CGRectGetMidY(rect) - size.height / 2.0;
-
-    if (scrolling) {
-        CGFloat span = size.width + CGRectGetWidth(rect);
+    if (scrolling && size.width > avail) {
+        CGFloat span = size.width + avail;
         CGFloat offset = fmod(phase * 28.0, span);
-        x = CGRectGetMinX(rect) + CGRectGetWidth(rect) - offset;
+        x = CGRectGetMinX(rect) + CGRectGetWidth(rect) - 4.0 - offset;
+    } else if (size.width <= avail) {
+        x = CGRectGetMidX(rect) - size.width / 2.0;
+    }
+
+    // 关键：把字裁在牌子/气泡里，绝不会跑到气泡外面
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    if (ctx) {
+        CGContextSaveGState(ctx);
+        CGContextClipToRect(ctx, CGRectInset(rect, 2.0, 1.5));
     }
 
     CGFloat cursor = x;
@@ -30,6 +41,7 @@ static void ANVDrawRainbowText(NSString *text, CGRect rect, CGFloat fontSize,
                             NSForegroundColorAttributeName: color}];
         cursor += chSize.width;
     }
+    if (ctx) CGContextRestoreGState(ctx);
 }
 
 // 歌词牌 / 独立歌词条共用的「亮玻璃」胶囊：不再是黑块
@@ -195,7 +207,7 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
     [self setNeedsDisplay];
 }
 
-+ (NSInteger)actionCount { return 17; }
++ (NSInteger)actionCount { return 19; }
 
 + (NSString *)titleForAction:(NSInteger)action {
     switch (MIN(MAX(action, 0), 16)) {
@@ -215,7 +227,9 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
         case 13: return @"打滚";
         case 14: return @"吹泡泡";
         case 15: return @"星星环绕";
-        default: return @"爱心发射";
+        case 16: return @"爱心发射";
+        case 17: return @"走动";
+        default: return @"翻跟头";
     }
 }
 
@@ -243,26 +257,60 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
     CGFloat side = CGRectGetHeight(rect);
     if (side < 12.0) return;
 
-    NSInteger act = MIN(MAX(_action, 0), 16);
+    NSInteger act = MIN(MAX(_action, 0), 18);
     BOOL twoByTwo = (act == 4 || act == 5 || act == 12);
+    CGFloat herdW = side * count;
     CGFloat signW = 0.0;
-    if (!twoByTwo && self.lyricText.length && CGRectGetWidth(rect) > side * count + 24.0) {
-        signW = CGRectGetWidth(rect) - side * count;
+    if (!twoByTwo && self.lyricText.length && CGRectGetWidth(rect) > herdW + 24.0) {
+        signW = CGRectGetWidth(rect) - herdW;
     }
 
-    // 招牌画在宠物右边
-    if (signW > 20.0) {
-        CGRect signRect = CGRectMake(CGRectGetMinX(rect) + side * count + side * 0.06,
-                                     CGRectGetMaxY(rect) - side * 0.80,
-                                     signW - side * 0.10,
-                                     MIN(24.0, side * 0.60));
+    // 走动 / 翻跟头：整群在条顶上来回溜达（给多留的那段空间用上）
+    CGFloat walkRoom = MAX(0.0, CGRectGetWidth(rect) - herdW - signW);
+    CGFloat walkX = 0.0;
+    if (act == 17) {
+        walkX = (0.5 - 0.5 * cos(_actionPhase * 1.1)) * walkRoom;
+    } else if (act == 18) {
+        walkX = (0.5 - 0.5 * cos(_actionPhase * 1.8)) * walkRoom;
+    }
+
+    // 招牌：一只的时候挂在右边；多只的时候在宠物之间「接力」
+    if (count <= 1) {
+        if (signW > 20.0) {
+            CGRect signRect = CGRectMake(CGRectGetMaxX(rect) - signW + side * 0.04,
+                                         CGRectGetMaxY(rect) - side * 0.80,
+                                         signW - side * 0.08,
+                                         MIN(24.0, side * 0.60));
+            [self drawSignInContext:ctx rect:signRect];
+        }
+    } else if (self.lyricText.length) {
+        // 每 3.5 秒把牌子传给下一只，交接的最后 15% 时间做一段飞行
+        CGFloat span = 3.5;
+        CGFloat seq = _actionPhase / span;
+        NSInteger holder = ((NSInteger)floor(seq)) % count;
+        if (holder < 0) holder = 0;
+        CGFloat frac = seq - floor(seq);
+        CGFloat fly = 0.0;
+        if (frac > 0.85) fly = (frac - 0.85) / 0.15;
+        NSInteger next = (holder + 1) % count;
+
+        CGFloat bubbleW = MIN(side * 1.9, CGRectGetWidth(rect) - side * 0.2);
+        CGFloat bubbleH = MIN(22.0, side * 0.60);
+        CGFloat holderX = CGRectGetMinX(rect) + (CGFloat)holder * side + walkX + side / 2.0;
+        CGFloat nextX = CGRectGetMinX(rect) + (CGFloat)next * side + walkX + side / 2.0;
+        CGFloat cx = holderX + (nextX - holderX) * fly;
+        // 交接时飞起来一点点
+        CGFloat lift = sin(fly * (CGFloat)M_PI) * side * 0.28;
+        CGRect signRect = CGRectMake(cx - bubbleW / 2.0,
+                                     CGRectGetMinY(rect) - bubbleH * 0.15 - lift,
+                                     bubbleW, bubbleH);
         [self drawSignInContext:ctx rect:signRect];
     }
 
     for (NSInteger i = 0; i < count; i++) {
         CGFloat t = _phase + (CGFloat)i * 0.55;
-        CGFloat at = _actionPhase + (CGFloat)i * 0.45 + (CGFloat)i * 0.9;
-        CGFloat dx = 0, dy = 0, rot = 0, sy = 1.0;
+        CGFloat at = _actionPhase + (CGFloat)i * 0.45;
+        CGFloat dx = walkX, dy = 0, rot = 0, sy = 1.0;
         BOOL eyesClosed = NO, mouthOpen = NO;
         BOOL pivotTop = NO;
 
@@ -279,8 +327,8 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
                 mouthOpen = YES;
                 break;
             }
-            case 3:
-                rot = sin(at * 1.5) * 0.45;
+            case 3:                       // 荡秋千：吊在条顶上摆
+                rot = sin(at * 1.5) * 0.55;
                 pivotTop = YES;
                 break;
             case 4:
@@ -327,6 +375,14 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
             case 16:
                 dy -= fabs(sin(at * 2.2 + (CGFloat)i)) * side * 0.10;
                 break;
+            case 17:                       // 走动：一步一步挪，脚下带点起伏
+                dy -= fabs(sin(at * 5.5 + (CGFloat)i)) * side * 0.06;
+                rot = sin(at * 5.5 + (CGFloat)i) * 0.05;
+                break;
+            case 18:                       // 翻跟头：整圈翻
+                rot = at * 4.4;
+                pivotTop = NO;
+                break;
             default:
                 dy -= fabs(sin(t * 3.0)) * 2.0 * (0.35 + _energy);
                 break;
@@ -336,10 +392,26 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
                                     CGRectGetMaxY(rect) - side * sy + dy,
                                     side, side * sy);
 
+        // 秋千的吊绳（在宠物后面画）
+        if (act == 3) {
+            CGPoint anchor = CGPointMake(CGRectGetMidX(petRect), CGRectGetMinY(rect) - side * 0.06);
+            CGPoint seat = CGPointMake(CGRectGetMidX(petRect), CGRectGetMaxY(petRect) - side * 0.78);
+            CGContextSaveGState(ctx);
+            CGContextSetStrokeColorWithColor(ctx, [UIColor colorWithWhite:1.0 alpha:0.30].CGColor);
+            CGContextSetLineWidth(ctx, 1.0);
+            for (NSInteger sgn = -1; sgn <= 1; sgn += 2) {
+                CGPoint hook = CGPointMake(seat.x + sgn * side * 0.22, seat.y);
+                CGContextMoveToPoint(ctx, anchor.x, anchor.y);
+                CGContextAddLineToPoint(ctx, hook.x, hook.y);
+                CGContextStrokePath(ctx);
+            }
+            CGContextRestoreGState(ctx);
+        }
+
         CGContextSaveGState(ctx);
         if (rot != 0.0) {
             CGPoint pv = pivotTop ? CGPointMake(CGRectGetMidX(petRect), CGRectGetMinY(petRect))
-                                  : CGPointMake(CGRectGetMidX(petRect), CGRectGetMaxY(petRect));
+                                  : CGPointMake(CGRectGetMidX(petRect), CGRectGetMidY(petRect));
             CGContextTranslateCTM(ctx, pv.x, pv.y);
             CGContextRotateCTM(ctx, rot);
             CGContextTranslateCTM(ctx, -pv.x, -pv.y);
@@ -351,9 +423,7 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
         CGContextRestoreGState(ctx);
     }
 
-    // 气氛装饰（按整群的位置摆）
-    CGRect herd = CGRectMake(CGRectGetMinX(rect), CGRectGetMinY(rect),
-                             side * count, side);
+    CGRect herd = CGRectMake(CGRectGetMinX(rect) + walkX, CGRectGetMinY(rect), herdW, side);
     switch (act) {
         case 2:
         case 6:  [self drawNotesAround:ctx rect:herd]; break;

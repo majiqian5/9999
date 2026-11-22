@@ -10,6 +10,12 @@
 /// 启动时把可用私有 API 写进 /var/mobile/andronavbar.log，方便排错
 + (void)logEnvironment;
 
+/// 音乐控制（MediaRemote，失败时退回 SBMediaController）
++ (BOOL)mediaPlay;
++ (BOOL)mediaPause;
++ (BOOL)mediaNext;
++ (BOOL)mediaPrevious;
+
 + (BOOL)openBundleID:(NSString *)bundleID;
 + (BOOL)goHome;
 + (BOOL)toggleAppSwitcher;

@@ -1,7 +1,9 @@
 #import "ANVActions.h"
+#import <dlfcn.h>
 #import "ANVHistory.h"
 #import <objc/runtime.h>
 #import <objc/message.h>
+#import <dlfcn.h>
 
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
 
@@ -130,6 +132,55 @@ static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
 }
 
 #pragma mark - App 切换
+
+#pragma mark - 音乐控制
+
+typedef void (*MRMediaRemoteSendCommandFunc)(int command, id userInfo);
+
+// MRMediaRemoteCommand: 0 播放 1 暂停 2 播放/暂停 3 停止 4 下一曲 5 上一曲
++ (BOOL)sendMediaCommand:(int)command {
+    static MRMediaRemoteSendCommandFunc send = NULL;
+    static BOOL looked = NO;
+    if (!looked) {
+        looked = YES;
+        void *handle = dlopen("/System/Library/PrivateFrameworks/MediaRemote.framework/MediaRemote", RTLD_LAZY);
+        if (handle) send = (MRMediaRemoteSendCommandFunc)dlsym(handle, "MRMediaRemoteSendCommand");
+    }
+    if (send) {
+        send(command, nil);
+        [self note:[NSString stringWithFormat:@"media cmd=%d via MediaRemote", command]];
+        return YES;
+    }
+
+    Class cls = objc_getClass("SBMediaController");
+    if (cls && [cls respondsToSelector:@selector(sharedInstance)]) {
+        id ctl = ((id (*)(id, SEL))objc_msgSend)(cls, @selector(sharedInstance));
+        NSString *selName = nil;
+        switch (command) {
+            case 0: selName = @"play"; break;
+            case 1: selName = @"pause"; break;
+            case 2: selName = @"togglePlayPause"; break;
+            case 4: selName = @"nextTrack"; break;
+            case 5: selName = @"previousTrack"; break;
+            default: break;
+        }
+        if (selName) {
+            SEL sel = NSSelectorFromString(selName);
+            if ([ctl respondsToSelector:sel]) {
+                ((id (*)(id, SEL))objc_msgSend)(ctl, sel);
+                [self note:[NSString stringWithFormat:@"media cmd=%d via SBMediaController %@", command, selName]];
+                return YES;
+            }
+        }
+    }
+    [self note:[NSString stringWithFormat:@"media cmd=%d 没有可用接口", command]];
+    return NO;
+}
+
++ (BOOL)mediaPlay { return [self sendMediaCommand:0]; }
++ (BOOL)mediaPause { return [self sendMediaCommand:1]; }
++ (BOOL)mediaNext { return [self sendMediaCommand:4]; }
++ (BOOL)mediaPrevious { return [self sendMediaCommand:5]; }
 
 + (BOOL)openBundleID:(NSString *)bundleID {
     if (!bundleID.length) return NO;
