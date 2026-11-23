@@ -25,6 +25,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, strong) UIView *barView;
 @property (nonatomic, strong) UIVisualEffectView *blurView;
 @property (nonatomic, copy) NSString *infoLineText;
+@property (nonatomic, strong) UIView *dragHandle;
+@property (nonatomic, assign) BOOL handleArmed;
 @property (nonatomic, copy) NSString *wishText;
 @property (nonatomic, assign) CFTimeInterval wishUntil;
 @property (nonatomic, strong) NSMutableArray<ANVGlyphView *> *glyphViews;
@@ -397,6 +399,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"光环跳动 · %@", st.haloBounce ? @"开" : @"关"],
         [NSString stringWithFormat:@"键背景 · %@", [self keyBgTitle]],
         [NSString stringWithFormat:@"气泡自适应歌词 · %@", st.bubbleAutoFit ? @"开" : @"关"],
+        [NSString stringWithFormat:@"隐藏拉手 · %@", st.handleEnabled ? @"开" : @"关"],
+        [NSString stringWithFormat:@"拉手灵敏度 %ld%% · 加", (long)lround(st.handleSensitivity * 100)],
+        [NSString stringWithFormat:@"拉手灵敏度 %ld%% · 减", (long)lround(st.handleSensitivity * 100)],
         [NSString stringWithFormat:@"麦克风频谱 · %@", st.micSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"模拟频谱 · %@", st.simulateSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"位置 · %@", st.positionLocked ? @"已锁定" : @"可拖动"],
@@ -408,7 +413,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                       @200, @201, @202, @203, @204, @205, @206, @207,
                       @210, @211, @212, @213, @217, @220, @221, @218, @219, @214, @215, @216,
                       @222, @223, @224, @225, @226, @227, @228, @229, @230, @231,
-                      @232, @233, @234, @235, @236, @237,
+                      @232, @233, @234, @235, @236, @237, @238, @239, @240,
                       @10, @11, @13, @14, @15];
 
     if (titles.count > 18) rowH = 30.0;
@@ -734,6 +739,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 232: [settings saveHaloDotScale:settings.haloDotScale + 0.1]; [self applyHaloSettings]; break;
         case 233: [settings saveHaloDotScale:settings.haloDotScale - 0.1]; [self applyHaloSettings]; break;
         case 234: [settings saveHaloRainbow:!settings.haloRainbow]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
+        case 238: [settings saveHandleEnabled:!settings.handleEnabled]; [self updateFrame]; [self hidePanel]; [self showPanel]; break;
+        case 239: [settings saveHandleSensitivity:settings.handleSensitivity + 0.1]; [self updateFrame]; [self hidePanel]; [self showPanel]; break;
+        case 240: [settings saveHandleSensitivity:settings.handleSensitivity - 0.1]; [self updateFrame]; [self hidePanel]; [self showPanel]; break;
         case 237: [settings saveBubbleAutoFit:!settings.bubbleAutoFit]; [self applyBubbleSettings]; break;
         case 236: [settings saveKeyBackgroundMode:(settings.keyBackgroundMode + 1) % 3]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 235: [settings saveHaloBounce:!settings.haloBounce]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
@@ -1389,6 +1397,78 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     center.y = MIN(MAX(center.y, halfH), maxY);
 
     self.barView.center = center;
+    [self layoutDragHandle];
+}
+
+/// 隐藏拉手：一块透明的可拖区域，贴在条的外侧，专门用来挪条（不碰图标）
+- (void)layoutDragHandle {
+    ANVSettings *st = [ANVSettings shared];
+    if (!self.barView.superview) return;
+    if (!self.dragHandle) {
+        self.dragHandle = [[UIView alloc] initWithFrame:CGRectZero];
+        self.dragHandle.backgroundColor = [UIColor clearColor];
+        self.dragHandle.userInteractionEnabled = YES;
+        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc]
+            initWithTarget:self action:@selector(handleHiddenDrag:)];
+        pan.minimumNumberOfTouches = 1;
+        [self.dragHandle addGestureRecognizer:pan];
+        [self.barView.superview addSubview:self.dragHandle];
+    }
+    [self.barView.superview bringSubviewToFront:self.dragHandle];
+    self.dragHandle.hidden = !st.handleEnabled;
+
+    CGRect bar = self.barView.frame;
+    CGFloat thick = 8.0 + 18.0 * st.handleSensitivity;      // 灵敏度直接改抓取厚度
+    BOOL vertical = ([ANVSettings shared].barOrientation != 0);
+    CGRect f;
+    if (vertical) {
+        f = CGRectMake(CGRectGetMinX(bar) - thick, CGRectGetMinY(bar), thick, CGRectGetHeight(bar));
+    } else {
+        f = CGRectMake(CGRectGetMinX(bar), CGRectGetMinY(bar) - thick, CGRectGetWidth(bar), thick);
+    }
+    self.dragHandle.frame = f;
+}
+
+- (void)handleHiddenDrag:(UIPanGestureRecognizer *)pan {
+    ANVSettings *st = [ANVSettings shared];
+    if (st.positionLocked) return;
+    CGFloat need = 12.0 / MAX(st.handleSensitivity, 0.3);   // 灵敏度越高，越短的距离就能拉动
+
+    switch (pan.state) {
+        case UIGestureRecognizerStateBegan:
+            self.handleArmed = NO;
+            self.dragStartCenter = self.barView.center;
+            break;
+        case UIGestureRecognizerStateChanged: {
+            CGPoint t = [pan translationInView:nil];
+            if (!self.handleArmed) {
+                if (hypot(t.x, t.y) < need) return;
+                self.handleArmed = YES;
+            }
+            CGRect screen = [UIScreen mainScreen].bounds;
+            CGSize barSz = self.barView.bounds.size;
+            CGPoint c = CGPointMake(self.dragStartCenter.x + t.x, self.dragStartCenter.y + t.y);
+            CGFloat limitY = screen.size.height - barSz.height / 2.0 - [self dockBottomInset];
+            c.y = MIN(MAX(c.y, barSz.height / 2.0), limitY);
+            c.x = MIN(MAX(c.x, barSz.width / 2.0), screen.size.width - barSz.width / 2.0);
+            self.barView.center = c;
+            [self layoutDragHandle];
+            break;
+        }
+        case UIGestureRecognizerStateEnded:
+        case UIGestureRecognizerStateCancelled: {
+            if (self.handleArmed) {
+                CGRect screen = [UIScreen mainScreen].bounds;
+                CGPoint c = self.barView.center;
+                [[ANVSettings shared] saveCenter:CGPointMake(c.x / screen.size.width,
+                                                             c.y / screen.size.height)];
+                [self updateFrame];
+            }
+            self.handleArmed = NO;
+            break;
+        }
+        default: break;
+    }
 }
 
 - (void)orientationChanged:(NSNotification *)note {

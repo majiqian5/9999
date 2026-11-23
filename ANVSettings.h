@@ -28,6 +28,10 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 @property (nonatomic, readonly) BOOL transparentBackground;
 /// 键背景：0 玻璃 / 1 透明 / 2 全透明
 @property (nonatomic, readonly) NSInteger keyBackgroundMode;
+/// 隐藏拉手（不可见的拖动条）开关
+@property (nonatomic, readonly) BOOL handleEnabled;
+/// 拉手灵敏度 0.3~2.0（越大越好拖 / 手指不用走远）
+@property (nonatomic, readonly) CGFloat handleSensitivity;
 @property (nonatomic, readonly) BOOL spectrumEnabled;
 @property (nonatomic, readonly) CGFloat spectrumSensitivity; // 0.5 ~ 2.0
 @property (nonatomic, readonly) NSInteger spectrumStyle;  // 0 柱状 1 点阵 2 镜像 3 折线
@@ -88,6 +92,8 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 - (void)saveBubbleAutoFit:(BOOL)v;
 - (void)saveTransparentBackground:(BOOL)v;
 - (void)saveKeyBackgroundMode:(NSInteger)v;
+- (void)saveHandleEnabled:(BOOL)v;
+- (void)saveHandleSensitivity:(CGFloat)v;
 - (void)saveHaloRainbow:(BOOL)v;
 - (void)saveHaloBounce:(BOOL)v;
 - (void)saveSpectrumWidth:(CGFloat)v;
