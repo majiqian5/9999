@@ -336,6 +336,10 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
         case 21: [self drawDisco:ctx rect:herd]; break;
         default: break;
     }
+
+    if (_weatherKind > 0) [self drawWeatherInContext:ctx rect:rect];
+    if (_festive) [self drawFestiveLanterns:ctx rect:rect];
+    if (_sparkBurst) [self drawSparkBurst:ctx rect:rect];
 }
 
 /// 画一群宠物（index 从 origin 开始编号，保证每只造型/相位不同）
@@ -429,14 +433,6 @@ static void ANVStrokeEyes(CGContextRef c, CGPoint l, CGPoint r, CGFloat rad,
     board.size.height = MAX(16.0, board.size.height);
     CGFloat radius = MIN(CGRectGetHeight(board) / 2.0, 11.0);
     ANVDrawFrostedCapsule(ctx, board, 0.75, radius, self.bubbleAlpha);
-
-    UIBezierPath *tail = [UIBezierPath bezierPath];
-    [tail moveToPoint:CGPointMake(CGRectGetMinX(board) + 6.0, CGRectGetMaxY(board) - 2.0)];
-    [tail addLineToPoint:CGPointMake(CGRectGetMinX(board) + 2.0, CGRectGetMaxY(board) + radius * 0.8)];
-    [tail addLineToPoint:CGPointMake(CGRectGetMinX(board) + 15.0, CGRectGetMaxY(board) - 2.0)];
-    [tail closePath];
-    [[UIColor colorWithWhite:1.0 alpha:0.82] setFill];
-    [tail fill];
 
     ANVDrawRainbowText(self.lyricText, board,
                        MAX(7.0, CGRectGetHeight(board) * 0.48 * self.textScale),
@@ -773,6 +769,83 @@ static CGPoint ANVRoundRectPoint(CGRect r, CGFloat rad, CGFloat d) {
     }
 
     CGContextRestoreGState(ctx);
+}
+
+
+
+/// 天气特效：雨丝 / 雪花（在宠物上方整条范围内飘）
+- (void)drawWeatherInContext:(CGContextRef)ctx rect:(CGRect)rect {
+    CGFloat W = CGRectGetWidth(rect), H = CGRectGetHeight(rect);
+    if (_weatherKind == 1) {
+        for (NSInteger i = 0; i < 26; i++) {
+            CGFloat x = fmod((CGFloat)i * 41.0 + _phase * 22.0, W);
+            CGFloat y = fmod((CGFloat)i * 57.0 + _phase * 160.0, H + 20.0) - 10.0;
+            UIColor *c = [UIColor colorWithHue:0.58 saturation:0.5 brightness:1.0 alpha:0.5];
+            CGContextSetStrokeColorWithColor(ctx, c.CGColor);
+            CGContextSetLineWidth(ctx, 1.0);
+            CGContextMoveToPoint(ctx, x, y);
+            CGContextAddLineToPoint(ctx, x - 1.6, y + 7.5);
+            CGContextStrokePath(ctx);
+        }
+    } else if (_weatherKind == 2) {
+        for (NSInteger i = 0; i < 20; i++) {
+            CGFloat x = fmod((CGFloat)i * 53.0 + sin(_phase * 1.2 + (CGFloat)i) * 12.0, W);
+            CGFloat y = fmod((CGFloat)i * 37.0 + _phase * 40.0, H + 16.0) - 8.0;
+            CGFloat r = 2.2 + (CGFloat)(i % 3);
+            CGContextSetFillColorWithColor(ctx,
+                [UIColor colorWithWhite:1.0 alpha:0.85].CGColor);
+            CGContextFillEllipseInRect(ctx, CGRectMake(x - r, y - r, r * 2, r * 2));
+            CGContextSetShadowWithColor(ctx, CGSizeZero, 4.0, [UIColor whiteColor].CGColor);
+        }
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+    }
+}
+
+/// 节日/节气：头顶一排小灯笼
+- (void)drawFestiveLanterns:(CGContextRef)ctx rect:(CGRect)rect {
+    CGFloat W = CGRectGetWidth(rect);
+    CGFloat side = CGRectGetHeight(rect);
+    CGFloat pulse = 0.6 + 0.4 * sin(_phase * 2.0);
+    for (NSInteger i = 0; i < 3; i++) {
+        CGFloat x = W * (0.25 + 0.25 * (CGFloat)i);
+        CGFloat y = 2.0 - side * 0.05;
+        CGFloat lw = side * 0.16, lh = side * 0.19;
+        // 吊绳
+        CGContextSetStrokeColorWithColor(ctx, [UIColor colorWithWhite:1.0 alpha:0.35].CGColor);
+        CGContextSetLineWidth(ctx, 1.0);
+        CGContextMoveToPoint(ctx, x, 0.0);
+        CGContextAddLineToPoint(ctx, x, y);
+        CGContextStrokePath(ctx);
+        UIColor *red = [UIColor colorWithHue:0.99 saturation:0.9
+                                   brightness:1.0 alpha:0.55 + 0.35 * pulse];
+        CGContextSetShadowWithColor(ctx, CGSizeZero, 8.0 * pulse, red.CGColor);
+        CGContextSetFillColorWithColor(ctx, red.CGColor);
+        UIBezierPath *body = [UIBezierPath bezierPathWithRoundedRect:
+            CGRectMake(x - lw / 2.0, y, lw, lh) cornerRadius:lw / 2.6];
+        [body fill];
+        // 金穗
+        CGContextSetStrokeColorWithColor(ctx,
+            [UIColor colorWithHue:0.12 saturation:0.85 brightness:1.0 alpha:0.9].CGColor);
+        CGContextSetLineWidth(ctx, 1.2);
+        CGContextMoveToPoint(ctx, x, y + lh);
+        CGContextAddLineToPoint(ctx, x, y + lh + side * 0.07);
+        CGContextStrokePath(ctx);
+    }
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
+}
+
+/// 点一下宠物：冒爱心
+- (void)drawSparkBurst:(CGContextRef)ctx rect:(CGRect)rect {
+    CGFloat side = CGRectGetHeight(rect);
+    for (NSInteger i = 0; i < 6; i++) {
+        CGFloat t = fmod(_phase * 1.2 + (CGFloat)i / 6.0, 1.0);
+        CGFloat x = CGRectGetMidX(rect) + sin((CGFloat)i * 1.3 + _phase * 1.5) * side * 0.5;
+        CGFloat y = CGRectGetMinY(rect) + side * 0.2 - t * side * 0.9;
+        CGFloat sc = side * 0.09 * (1.0 - 0.5 * t);
+        UIColor *c = [UIColor colorWithHue:fmod(0.95 + (CGFloat)i * 0.03, 1.0)
+                                saturation:0.85 brightness:1.0 alpha:(1.0 - t)];
+        ANVFilledHeart(ctx, CGPointMake(x, y), sc, c);
+    }
 }
 
 #pragma mark - 气氛装饰

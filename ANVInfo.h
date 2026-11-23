@@ -6,6 +6,8 @@
 /// 可用信息条目（顺序随机但有内容变化），每调用一次内部自增游标
 + (NSString *)nextInfoLineWithWeather:(NSDictionary *)weather;
 
+/// 天气文本：@"多云 26°"
++ (NSString *)weatherLineFrom:(NSDictionary *)weather;
 /// 最近的节气或节日：@"中秋 · 还有 3 天"
 + (NSString *)festivalLine;
 /// 农历：@"农历七月十二"

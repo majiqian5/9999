@@ -25,6 +25,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, strong) UIView *barView;
 @property (nonatomic, strong) UIVisualEffectView *blurView;
 @property (nonatomic, copy) NSString *infoLineText;
+@property (nonatomic, copy) NSString *wishText;
+@property (nonatomic, assign) CFTimeInterval wishUntil;
 @property (nonatomic, strong) NSMutableArray<ANVGlyphView *> *glyphViews;
 @property (nonatomic, strong) NSMutableArray<UIButton *> *buttons;
 @property (nonatomic, strong) ANVSpectrumView *spectrumView;
@@ -581,6 +583,41 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 }
 
 // 随机动作：有音乐时更爱跳舞/蹦跳，深夜更爱睡觉
+- (void)petTapped:(UITapGestureRecognizer *)tap {
+    if (!self.petView) return;
+    ANVSettings *st = [ANVSettings shared];
+    [self pickRandomPetAction];
+    if (st.petStyle == 0) {
+        self.petView.style = (NSInteger)arc4random_uniform(10);
+        self.petView.partnerStyle = (NSInteger)arc4random_uniform(10);
+    }
+    self.petView.sparkBurst = YES;
+    [self.petView setNeedsDisplay];
+
+    static NSArray<NSString *> *wishes = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        wishes = @[@"今天有好事发生", @"你笑起来真好看", @"别熬夜啦", @"好运正在赶来",
+                   @"摸摸头", @"听首歌放松下", @"记得喝水", @"你超棒",
+                   @"再忙也要吃饭", @"今天也会很顺利", @"抱一下", @"我在呢"];
+    });
+    self.wishText = wishes[arc4random_uniform((uint32_t)wishes.count)];
+    self.wishUntil = CACurrentMediaTime() + 12.0;
+    [self layoutWidgets];
+
+    if (st.haptics) {
+        UIImpactFeedbackGenerator *g = [[UIImpactFeedbackGenerator alloc]
+            initWithStyle:UIImpactFeedbackStyleLight];
+        [g impactOccurred];
+    }
+    // 爱心两秒后收
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.2 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{
+        self.petView.sparkBurst = NO;
+        [self.petView setNeedsDisplay];
+    });
+}
+
 - (void)pickRandomPetAction {
     if (!self.petView) return;
     NSUInteger r = arc4random_uniform(19);
@@ -1053,6 +1090,14 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             }
             lastBeat = levels[0];
         }
+        static CFTimeInterval lastStyleRoll = 0;
+        CFTimeInterval nowS = CACurrentMediaTime();
+        if ([ANVSettings shared].petStyle == 0 && self.petView && nowS - lastStyleRoll > 28.0) {
+            lastStyleRoll = nowS;
+            self.petView.style = (NSInteger)arc4random_uniform(10);
+            self.petView.partnerStyle = (NSInteger)arc4random_uniform(10);
+            [self.petView setNeedsDisplay];
+        }
         static CFTimeInterval lastPetLyric = 0;
         CFTimeInterval nowP = CACurrentMediaTime();
         if (nowP - lastPetLyric > 4.0) {
@@ -1072,6 +1117,25 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             if (!hasLyric && nowI - lastInfo > 8.0) {
                 lastInfo = nowI;
                 self.infoLineText = [ANVInfo nextInfoLineWithWeather:npNow[@"weather"]];
+            }
+            // 天气特效：看 np.js 里的天气文本
+            NSString *wtext = [[ANVInfo weatherLineFrom:npNow[@"weather"]] lowercaseString];
+            NSInteger wk = 0;
+            if ([wtext containsString:@"雪"]) wk = 2;
+            else if ([wtext containsString:@"雨"] || [wtext containsString:@"雷"]) wk = 1;
+            if (self.petView.weatherKind != wk) {
+                self.petView.weatherKind = wk;
+                [self.petView setNeedsDisplay];
+            }
+            // 节日/节气当天挂灯笼
+            static NSInteger lastFestiveDay = -1;
+            NSInteger dayStamp = (NSInteger)floor([[NSDate date] timeIntervalSince1970] / 86400.0);
+            if (lastFestiveDay != dayStamp) {
+                lastFestiveDay = dayStamp;
+                NSString *fest = [ANVInfo festivalLine];
+                BOOL today = [fest containsString:@"今天"] || [fest containsString:@"明天"];
+                self.petView.festive = today;
+                [self.petView setNeedsDisplay];
             }
             double npDur = [npNow[@"duration"] doubleValue];
             double npEla = [npNow[@"elapsed"] doubleValue];
@@ -1117,12 +1181,17 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         self.petView.sizeScale = st.petScale;
         // 0 随机（5 只里挑一只当主宠，其余按顺序接着出）
         NSInteger style = st.petStyle;
-        if (style == 0) style = (NSInteger)arc4random_uniform(5); else style -= 1;
+        if (style == 0) style = (NSInteger)arc4random_uniform(10); else style -= 1;
         self.petView.style = style;
         self.petView.petCount = st.petCount;
-        self.petView.partnerStyle = (NSInteger)arc4random_uniform(3);
+        self.petView.partnerStyle = (NSInteger)arc4random_uniform(10);
         NSInteger pa = st.petAction;
-        self.petView.action = (pa <= 0) ? (NSInteger)arc4random_uniform(19) : (pa - 1);
+        self.petView.action = (pa <= 0) ? (NSInteger)arc4random_uniform(22) : (pa - 1);
+        self.petView.userInteractionEnabled = YES;
+        UITapGestureRecognizer *petTap = [[UITapGestureRecognizer alloc]
+            initWithTarget:self action:@selector(petTapped:)];
+        petTap.numberOfTapsRequired = 1;
+        [self.petView addGestureRecognizer:petTap];
         [self.window.rootViewController.view addSubview:self.petView];
     }
     if (st.lyricEnabled && !st.petEnabled) {
@@ -1136,6 +1205,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
 /// 气泡文字：有真歌词就显示歌词，没有就轮播 时间/天气/农历/节日倒计时
 - (NSString *)bubbleText {
+    if (self.wishText.length && CACurrentMediaTime() < self.wishUntil) return self.wishText;
     NSDictionary *np = [self nowBridge];
     id lyr = np[@"lyricLine"];
     if ([lyr isKindOfClass:[NSString class]] && [lyr length]) return lyr;
