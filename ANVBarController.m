@@ -26,6 +26,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, strong) UIVisualEffectView *blurView;
 @property (nonatomic, copy) NSString *infoLineText;
 @property (nonatomic, strong) UIView *dragHandle;
+@property (nonatomic, assign) BOOL barHidden;
+@property (nonatomic, strong) UIView *restoreDot;
 @property (nonatomic, assign) BOOL handleArmed;
 @property (nonatomic, copy) NSString *wishText;
 @property (nonatomic, assign) CFTimeInterval wishUntil;
@@ -402,6 +404,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"隐藏拉手 · %@", st.handleEnabled ? @"开" : @"关"],
         [NSString stringWithFormat:@"拉手灵敏度 %ld%% · 加", (long)lround(st.handleSensitivity * 100)],
         [NSString stringWithFormat:@"拉手灵敏度 %ld%% · 减", (long)lround(st.handleSensitivity * 100)],
+        [NSString stringWithFormat:@"一键隐藏导航条 · %@", self.barHidden ? @"点此显示" : @"点此收起"],
         [NSString stringWithFormat:@"麦克风频谱 · %@", st.micSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"模拟频谱 · %@", st.simulateSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"位置 · %@", st.positionLocked ? @"已锁定" : @"可拖动"],
@@ -413,7 +416,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                       @200, @201, @202, @203, @204, @205, @206, @207,
                       @210, @211, @212, @213, @217, @220, @221, @218, @219, @214, @215, @216,
                       @222, @223, @224, @225, @226, @227, @228, @229, @230, @231,
-                      @232, @233, @234, @235, @236, @237, @238, @239, @240,
+                      @232, @233, @234, @235, @236, @237, @238, @239, @240, @241,
                       @10, @11, @13, @14, @15];
 
     if (titles.count > 18) rowH = 30.0;
@@ -739,6 +742,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 232: [settings saveHaloDotScale:settings.haloDotScale + 0.1]; [self applyHaloSettings]; break;
         case 233: [settings saveHaloDotScale:settings.haloDotScale - 0.1]; [self applyHaloSettings]; break;
         case 234: [settings saveHaloRainbow:!settings.haloRainbow]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
+        case 241: [self setBarHidden:!self.barHidden]; [self hidePanel]; [self showPanel]; break;
         case 238: [settings saveHandleEnabled:!settings.handleEnabled]; [self updateFrame]; [self hidePanel]; [self showPanel]; break;
         case 239: [settings saveHandleSensitivity:settings.handleSensitivity + 0.1]; [self updateFrame]; [self hidePanel]; [self showPanel]; break;
         case 240: [settings saveHandleSensitivity:settings.handleSensitivity - 0.1]; [self updateFrame]; [self hidePanel]; [self showPanel]; break;
@@ -1009,6 +1013,12 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     pan.delegate = self;
     pan.minimumNumberOfTouches = 1;   // 单指可拖，跟上一版一致
     [self.barView addGestureRecognizer:pan];
+
+    UITapGestureRecognizer *doubleTap = [[UITapGestureRecognizer alloc]
+        initWithTarget:self action:@selector(handleBarDoubleTap:)];
+    doubleTap.numberOfTapsRequired = 2;
+    doubleTap.delegate = self;
+    [self.barView addGestureRecognizer:doubleTap];
 
     UILongPressGestureRecognizer *press = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
     press.minimumPressDuration = 0.65;
@@ -1397,10 +1407,79 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     center.y = MIN(MAX(center.y, halfH), maxY);
 
     self.barView.center = center;
+    if (_barHidden) {
+        self.barView.alpha = 0.0;
+        self.restoreDot.center = center;
+        return;
+    }
     [self layoutDragHandle];
 }
 
 /// 隐藏拉手：一块透明的可拖区域，贴在条的外侧，专门用来挪条（不碰图标）
+- (void)handleBarDoubleTap:(UITapGestureRecognizer *)tap {
+    [self setBarHidden:!self.barHidden];
+}
+
+/// 一键收起 / 显示：整条 + 宠物 + 频谱一起淡出，只在原位留一个霓虹小点，点它回来
+- (void)setBarHidden:(BOOL)hidden {
+    _barHidden = hidden;
+    if (!self.barView) return;
+
+    if (hidden) {
+        CGPoint center = self.barView.center;
+        if (!self.restoreDot) {
+            CGFloat d = 26.0;
+            self.restoreDot = [[UIView alloc] initWithFrame:CGRectMake(center.x - d / 2.0,
+                                                                      center.y - d / 2.0, d, d)];
+            self.restoreDot.backgroundColor = [UIColor colorWithWhite:1.0 alpha:0.06];
+            self.restoreDot.layer.cornerRadius = d / 2.0;
+            self.restoreDot.layer.borderWidth = 1.0;
+            self.restoreDot.layer.borderColor =
+                [UIColor colorWithHue:0.75 saturation:1.0 brightness:1.0 alpha:0.55].CGColor;
+            self.restoreDot.layer.shadowColor =
+                [UIColor colorWithHue:0.75 saturation:1.0 brightness:1.0 alpha:1.0].CGColor;
+            self.restoreDot.layer.shadowOpacity = 0.6;
+            self.restoreDot.layer.shadowRadius = 8.0;
+            UITapGestureRecognizer *t = [[UITapGestureRecognizer alloc]
+                initWithTarget:self action:@selector(restoreDotTapped:)];
+            [self.restoreDot addGestureRecognizer:t];
+            [self.barView.superview addSubview:self.restoreDot];
+        }
+        self.restoreDot.center = center;
+        self.restoreDot.hidden = NO;
+
+        if (self.dragHandle) { [self.dragHandle removeFromSuperview]; self.dragHandle = nil; }
+        [self hidePanel];
+        [UIView animateWithDuration:0.22 animations:^{
+            self.barView.alpha = 0.0;
+            self.petView.alpha = 0.0;
+            self.lyricsView.alpha = 0.0;
+            self.restoreDot.alpha = 1.0;
+        } completion:^(BOOL finished) {
+            self.barView.hidden = YES;
+            self.petView.hidden = YES;
+            self.lyricsView.hidden = YES;
+        }];
+    } else {
+        self.barView.hidden = NO;
+        self.petView.hidden = NO;
+        self.lyricsView.hidden = NO;
+        [UIView animateWithDuration:0.22 animations:^{
+            self.barView.alpha = 1.0;
+            self.petView.alpha = 1.0;
+            self.lyricsView.alpha = 1.0;
+            self.restoreDot.alpha = 0.0;
+        } completion:^(BOOL finished) {
+            self.restoreDot.hidden = YES;
+        }];
+        [self updateFrame];
+    }
+}
+
+- (void)restoreDotTapped:(UITapGestureRecognizer *)tap {
+    [self setBarHidden:NO];
+}
+
 - (void)layoutDragHandle {
     ANVSettings *st = [ANVSettings shared];
     if (!self.barView.superview) return;
