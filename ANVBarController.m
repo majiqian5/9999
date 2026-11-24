@@ -1404,6 +1404,16 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 - (void)layoutDragHandle {
     ANVSettings *st = [ANVSettings shared];
     if (!self.barView.superview) return;
+
+    // 关掉就彻底移除，不留一块看不见的可点区域
+    if (!st.handleEnabled) {
+        if (self.dragHandle) {
+            [self.dragHandle removeFromSuperview];
+            self.dragHandle = nil;
+        }
+        return;
+    }
+
     if (!self.dragHandle) {
         self.dragHandle = [[UIView alloc] initWithFrame:CGRectZero];
         self.dragHandle.backgroundColor = [UIColor clearColor];
