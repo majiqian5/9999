@@ -470,7 +470,6 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
         _axsPeak = MIN(MAX(_axsPeak, 16.0f), 120.0f);
     }
 
-    static int traceTicks = 0;
     for (NSUInteger i = 0; i < kANVBandCount; i++) {
         float db = i < found ? values[i] : self.axsMinDb;
         float target;
@@ -497,11 +496,7 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
         _liveUntil = MAX(_liveUntil, _lastChangeAt + 2.5);
     }
 
-    if (++traceTicks % 40 == 0) {
-        [ANVActions note:[NSString stringWithFormat:
-            @"axs trace mode=%d peak=%.1f b0=%.2f b4=%.2f b9=%.2f fresh=%d",
-            _axsScaleMode, _axsPeak, _axsLevels[0], _axsLevels[4], _axsLevels[9], (int)fresh]];
-    }
+    // 频谱调试行已移除（每 3 秒一条会把日志撑到 8MB+）
 }
 
 #pragma mark - 模拟频谱（占位动画，不是真实电平）

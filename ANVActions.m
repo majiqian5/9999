@@ -10,28 +10,52 @@
 
 static NSString *const kANVLogPath = @"/var/mobile/andronavbar.log";
 
+/// 日志统一丢到后台队列写盘：主线程上每次 note 都同步写文件，调后台列表时特别容易卡一手
+static dispatch_queue_t ANVLogQueue(void) {
+    static dispatch_queue_t queue;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        queue = dispatch_queue_create("com.doubao.andronavbar.log", DISPATCH_QUEUE_SERIAL);
+        dispatch_set_target_queue(queue, dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0));
+    });
+    return queue;
+}
+
+static void ANVLogAppend(NSString *line) {
+    @autoreleasepool {
+        NSString *stamped = [NSString stringWithFormat:@"[%@] %@\n",
+                             [NSDateFormatter localizedStringFromDate:[NSDate date]
+                                                            dateStyle:NSDateFormatterMediumStyle
+                                                            timeStyle:NSDateFormatterMediumStyle],
+                             line];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        // 超过 300KB 直接重开一份，防止日志无限膨胀（原来 8MB+ 全是频谱调试行）
+        NSDictionary *attrs = [fm attributesOfItemAtPath:kANVLogPath error:nil];
+        if (attrs && [attrs fileSize] > 300 * 1024) {
+            [[NSFileManager defaultManager] removeItemAtPath:kANVLogPath error:nil];
+        }
+        if (![fm fileExistsAtPath:kANVLogPath]) {
+            [stamped writeToFile:kANVLogPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            return;
+        }
+        NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:kANVLogPath];
+        @try {
+            [handle seekToEndOfFile];
+            [handle writeData:[stamped dataUsingEncoding:NSUTF8StringEncoding]];
+            [handle closeFile];
+        } @catch (__unused NSException *e) {}
+    }
+}
+
 static void ANVLog(NSString *format, ...) {
     va_list args;
     va_start(args, format);
     NSString *line = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
-
-    NSString *stamped = [NSString stringWithFormat:@"[%@] %@\n",
-                         [NSDateFormatter localizedStringFromDate:[NSDate date]
-                                                        dateStyle:NSDateFormatterMediumStyle
-                                                        timeStyle:NSDateFormatterMediumStyle],
-                         line];
-    NSFileManager *fm = [NSFileManager defaultManager];
-    if (![fm fileExistsAtPath:kANVLogPath]) {
-        [stamped writeToFile:kANVLogPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
-        return;
-    }
-    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:kANVLogPath];
-    @try {
-        [handle seekToEndOfFile];
-        [handle writeData:[stamped dataUsingEncoding:NSUTF8StringEncoding]];
-        [handle closeFile];
-    } @catch (__unused NSException *e) {}
+    if (!line.length) return;
+    dispatch_async(ANVLogQueue(), ^{
+        ANVLogAppend(line);
+    });
 }
 
 static void ANVDumpMethods(Class cls, NSString *keyword, NSString *tag) {
@@ -444,35 +468,21 @@ typedef void (*MRMediaRemoteSendCommandFunc)(int command, id userInfo);
     if (!recents) { ANVLog(@"recents: sharedInstance 为 nil"); return @[]; }
 
     NSArray *layouts = nil;
-    // 不同系统上名字不一样，按可能性从高到低逐个试
-    for (NSString *name in @[@"recentsIncludingHiddenAppLayouts:",
-                             @"recentAppLayouts",
-                             @"recents",
-                             @"_recents"]) {
-        SEL sel = NSSelectorFromString(name);
-        if (![recents respondsToSelector:sel]) continue;
+    SEL incl = NSSelectorFromString(@"recentsIncludingHiddenAppLayouts:");
+    if ([recents respondsToSelector:incl]) {
         @try {
-            if ([name hasSuffix:@":"]) {
-                NSMethodSignature *sig = [recents methodSignatureForSelector:sel];
-                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-                inv.target = recents;
-                inv.selector = sel;
-                BOOL yes = YES;
-                [inv setArgument:&yes atIndex:2];
-                [inv invoke];
-                __unsafe_unretained id result = nil;
-                [inv getReturnValue:&result];
-                if ([result isKindOfClass:[NSArray class]]) layouts = result;
-            } else {
-                id result = [recents performSelector:sel];
-                if ([result isKindOfClass:[NSArray class]]) layouts = result;
-            }
-            if (layouts.count) {
-                ANVLog(@"recents: via %@ -> %lu", name, (unsigned long)layouts.count);
-                break;
-            }
+            NSMethodSignature *sig = [recents methodSignatureForSelector:incl];
+            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+            inv.target = recents;
+            inv.selector = incl;
+            BOOL yes = YES;
+            [inv setArgument:&yes atIndex:2];
+            [inv invoke];
+            __unsafe_unretained id result = nil;
+            [inv getReturnValue:&result];
+            if ([result isKindOfClass:[NSArray class]]) layouts = result;
         } @catch (NSException *e) {
-            ANVLog(@"recents %@ exception: %@", name, e);
+            ANVLog(@"recents invoke exception: %@", e);
         }
     }
     if (!layouts.count && [recents respondsToSelector:NSSelectorFromString(@"_recentsFromPrefs")]) {
@@ -527,16 +537,8 @@ typedef void (*MRMediaRemoteSendCommandFunc)(int command, id userInfo);
 }
 
 + (NSArray<NSString *> *)historyBundleIDs {
-    // 用运行时取，老版本 ANVHistory.h 没声明 visitedBundleIDs 也能编译
-    @try {
-        Class historyClass = objc_getClass("ANVHistory");
-        id shared = [historyClass performSelector:@selector(shared)];
-        if ([shared respondsToSelector:@selector(visitedBundleIDs)]) {
-            id result = [shared performSelector:@selector(visitedBundleIDs)];
-            if ([result isKindOfClass:[NSArray class]]) return result;
-        }
-    } @catch (__unused NSException *e) {}
-    return @[];
+    @try { return [[ANVHistory shared] visitedBundleIDs]; }
+    @catch (__unused NSException *e) { return @[]; }
 }
 
 #pragma mark - 当前 App

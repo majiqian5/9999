@@ -1835,7 +1835,6 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
 }
 
 - (void)glyphTapped:(UIButton *)sender {
-    if (self.panelView) [self hidePanel];
     [self performSlotAction:sender.tag];
 }
 
