@@ -28,5 +28,6 @@
 - (NSString *)moveBack;
 - (NSString *)moveForward;
 - (void)noteProgrammaticOpen:(NSString *)bundleID;
+- (NSArray<NSString *> *)visitedBundleIDs;
 - (void)noteOpenResult:(NSString *)bundleID success:(BOOL)ok;
 @end
