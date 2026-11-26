@@ -118,9 +118,13 @@ static void ANVSetFrontmostHook(id self, SEL _cmd, BOOL frontmost) {
     } @catch (__unused NSException *e) {}
 
     // SpringBoard 里取不到时，走 LSApplicationWorkspace / SBApplicationController
+    // （运行时调用，避免老版本 ANVActions.h 少声明方法导致编译不过）
     @try {
-        NSString *live = [ANVActions frontmostBundleID];
-        if (live.length) return live;
+        Class actionsClass = [ANVActions class];
+        if ([actionsClass respondsToSelector:@selector(frontmostBundleID)]) {
+            NSString *live = [actionsClass performSelector:@selector(frontmostBundleID)];
+            if (live.length) return live;
+        }
     } @catch (__unused NSException *e) {}
     return nil;
 }

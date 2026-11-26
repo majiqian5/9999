@@ -527,8 +527,16 @@ typedef void (*MRMediaRemoteSendCommandFunc)(int command, id userInfo);
 }
 
 + (NSArray<NSString *> *)historyBundleIDs {
-    @try { return [[ANVHistory shared] visitedBundleIDs]; }
-    @catch (__unused NSException *e) { return @[]; }
+    // 用运行时取，老版本 ANVHistory.h 没声明 visitedBundleIDs 也能编译
+    @try {
+        Class historyClass = objc_getClass("ANVHistory");
+        id shared = [historyClass performSelector:@selector(shared)];
+        if ([shared respondsToSelector:@selector(visitedBundleIDs)]) {
+            id result = [shared performSelector:@selector(visitedBundleIDs)];
+            if ([result isKindOfClass:[NSArray class]]) return result;
+        }
+    } @catch (__unused NSException *e) {}
+    return @[];
 }
 
 #pragma mark - 当前 App
