@@ -70,6 +70,7 @@ static void ANVSetPref(NSString *key, id value) {
 @property (nonatomic, assign) BOOL micSpectrum;
 @property (nonatomic, assign) BOOL simulateSpectrum;
 @property (nonatomic, assign) NSInteger recentsStyle;
+@property (nonatomic, assign) CGFloat recentsOffsetY;
 @end
 
 @implementation ANVSettings
@@ -125,8 +126,17 @@ static void ANVSetPref(NSString *key, id value) {
     id kbm = ANVCopyPref(@"KeyBgMode");
     self.keyBackgroundMode = kbm ? MIN(MAX([kbm integerValue], 0), 2)
                                  : (self.transparentBackground ? 1 : 0);
-    id hEn = ANVCopyPref(@"HandleEnabled");
-    self.handleEnabled = hEn ? [hEn boolValue] : YES;
+    // 老面板那行叫「隐藏拉手」，开=可用，语义是反的，很多人点一下就把拉手关掉了。
+    // 1.5.19 起迁移一次：升级后先把拉手打开，之后的爱开关照旧保存。
+    id hMig = ANVCopyPref(@"HandleEnabledV2");
+    if (!hMig) {
+        self.handleEnabled = YES;
+        ANVSetPref(@"HandleEnabled", @YES);
+        ANVSetPref(@"HandleEnabledV2", @YES);
+    } else {
+        id hEn = ANVCopyPref(@"HandleEnabled");
+        self.handleEnabled = hEn ? [hEn boolValue] : YES;
+    }
     id hSy = ANVCopyPref(@"HandleSensitivity");
     self.handleSensitivity = hSy ? MIN(MAX([hSy doubleValue], 0.3), 2.0) : 1.0;
 
@@ -204,6 +214,9 @@ static void ANVSetPref(NSString *key, id value) {
     self.haloMotion = MIN(MAX(self.haloMotion, 0), 5);
     id heh = ANVCopyPref(@"HandleEdgeHide");
     self.handleEdgeHide = heh ? [heh boolValue] : YES;
+    id roy = ANVCopyPref(@"RecentsOffsetY");
+    self.recentsOffsetY = roy ? [roy doubleValue] : 0.0;
+    self.recentsOffsetY = MIN(MAX(self.recentsOffsetY, -160.0), 160.0);
     // 夹取脏值：旧版本没写入过这些键时会读成 0
     self.bubbleDX = MIN(MAX(self.bubbleDX, -160.0), 160.0);
     self.bubbleDY = MIN(MAX(self.bubbleDY, -80.0), 80.0);
@@ -334,6 +347,11 @@ static void ANVSetPref(NSString *key, id value) {
 - (void)saveHaloDotScale:(CGFloat)v { self.haloDotScale = MIN(MAX(v, 0.6), 2.0); ANVSetPref(@"HaloDotScale", @(self.haloDotScale)); }
 - (void)saveHaloRainbow:(BOOL)v { self.haloRainbow = v; ANVSetPref(@"HaloRainbow", @(v)); }
 - (void)saveHaloBounce:(BOOL)v { self.haloBounce = v; ANVSetPref(@"HaloBounce", @(v)); }
+- (void)saveRecentsOffsetY:(CGFloat)v {
+    self.recentsOffsetY = MIN(MAX(v, -160.0), 160.0);
+    ANVSetPref(@"RecentsOffsetY", @(self.recentsOffsetY));
+}
+
 - (void)saveHaloMotion:(NSInteger)v {
     self.haloMotion = MIN(MAX(v, 0), 5);
     ANVSetPref(@"HaloMotion", @(self.haloMotion));

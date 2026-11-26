@@ -27,7 +27,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, strong) UIVisualEffectView *blurView;
 @property (nonatomic, copy) NSString *infoLineText;
 @property (nonatomic, strong) UIView *dragHandle;
-@property (nonatomic, strong) UIView *panelDismissView;
+@property (nonatomic, strong) UITapGestureRecognizer *panelTap;
+@property (nonatomic, strong) UIScrollView *panelScroll;
+@property (nonatomic, assign) CGFloat panelKeepOffset;   // 记住列表滚到哪，刷新后不跳回顶部
 @property (nonatomic, assign) BOOL barHidden;
 @property (nonatomic, strong) UIView *restoreDot;
 @property (nonatomic, assign) BOOL handleArmed;
@@ -57,15 +59,17 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, assign) CGFloat pullOver;   // 顶到下限后还继续往下拉了多少（用来触发收起）
 @end
 
-// 空白处不接手势，让底下的图标照常能点
+// 空白处不接手势，让底下的图标照常能点；设置面板打开时临时接管空白区，点空白即收起
 @interface ANVPassthroughView : UIView
+@property (nonatomic, assign) BOOL capturesBlankTouches;
 @end
 
 @implementation ANVPassthroughView
 
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
     UIView *hit = [super hitTest:point withEvent:event];
-    return (hit == self) ? nil : hit;
+    if (hit == self) return self.capturesBlankTouches ? self : nil;
+    return hit;
 }
 
 @end
@@ -404,12 +408,14 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"光环动作 · %@", [self haloMotionTitle]],
         [NSString stringWithFormat:@"键背景 · %@", [self keyBgTitle]],
         [NSString stringWithFormat:@"气泡自适应歌词 · %@", st.bubbleAutoFit ? @"开" : @"关"],
-        [NSString stringWithFormat:@"隐藏拉手 · %@", st.handleEnabled ? @"开" : @"关"],
+        [NSString stringWithFormat:@"拉手 · %@", st.handleEnabled ? @"开" : @"关"],
         [NSString stringWithFormat:@"拉手灵敏度 %ld%% · 加", (long)lround(st.handleSensitivity * 100)],
         [NSString stringWithFormat:@"拉手灵敏度 %ld%% · 减", (long)lround(st.handleSensitivity * 100)],
         [NSString stringWithFormat:@"拉手贴边隐藏 · %@", st.handleEdgeHide ? @"开" : @"关"],
         [NSString stringWithFormat:@"一键隐藏导航条 · %@", self.barHidden ? @"点此显示" : @"点此收起"],
         [NSString stringWithFormat:@"后台卡片 · %@", ([ANVSettings shared].recentsStyle == 1 ? @"叠卡" : @"原生")],
+        [NSString stringWithFormat:@"后台卡片 Y %ld · 上移", (long)lround(st.recentsOffsetY)],
+        [NSString stringWithFormat:@"后台卡片 Y %ld · 下移", (long)lround(st.recentsOffsetY)],
         [NSString stringWithFormat:@"麦克风频谱 · %@", st.micSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"模拟频谱 · %@", st.simulateSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"位置 · %@", st.positionLocked ? @"已锁定" : @"可拖动"],
@@ -422,6 +428,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                       @210, @211, @212, @213, @217, @220, @221, @218, @219, @214, @215, @216,
                       @222, @223, @224, @225, @226, @227, @228, @229, @230, @231,
                       @232, @233, @234, @235, @243, @236, @237, @238, @239, @240, @244, @241, @242,
+                      @245, @246,
                       @10, @11, @13, @14, @15];
 
     if (titles.count > 18) rowH = 30.0;
@@ -459,6 +466,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     scroll.backgroundColor = [UIColor clearColor];
     scroll.clipsToBounds = YES;
     [panel addSubview:scroll];
+    self.panelScroll = scroll;
 
     for (NSUInteger i = 0; i < titles.count; i++) {
         UIButton *row = [UIButton buttonWithType:UIButtonTypeCustom];
@@ -506,19 +514,24 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     self.panelView = panel;
 
-    // 点空白收起：先铺一层全屏透明接收层，面板压在它上面，点面板外的任意空白都关
-    UIView *catcher = [[UIView alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    catcher.backgroundColor = [UIColor clearColor];
-    catcher.userInteractionEnabled = YES;
-    UITapGestureRecognizer *tapOut = [[UITapGestureRecognizer alloc]
-        initWithTarget:self action:@selector(panelBlankTapped:)];
-    tapOut.numberOfTapsRequired = 1;
-    [catcher addGestureRecognizer:tapOut];
-    [self.window.rootViewController.view addSubview:catcher];
-    self.panelDismissView = catcher;
+    // 点空白收起：面板打开期间让全屏容器接管空白区的触摸，点面板外任意空白都关
+    // （之前那层透明接收层会被容器的 hitTest 漏掉，所以点了没反应）
+    UIView *hostRoot = self.window.rootViewController.view;
+    if ([hostRoot isKindOfClass:[ANVPassthroughView class]]) {
+        ((ANVPassthroughView *)hostRoot).capturesBlankTouches = YES;
+    }
+    if (!self.panelTap) {
+        UITapGestureRecognizer *tapOut = [[UITapGestureRecognizer alloc]
+            initWithTarget:self action:@selector(panelBlankTapped:)];
+        tapOut.numberOfTapsRequired = 1;
+        tapOut.cancelsTouchesInView = NO;
+        [hostRoot addGestureRecognizer:tapOut];
+        self.panelTap = tapOut;
+    }
+    self.panelTap.enabled = YES;
 
     // 面板放到全屏容器上，否则超出 bar 边界就收不到点击
-    [self.window.rootViewController.view addSubview:panel];
+    [hostRoot addSubview:panel];
     CGRect barFrame = self.barView.frame;
     CGFloat top = CGRectGetMinY(barFrame) - CGRectGetHeight(panel.bounds) - 8.0;
     if (top < 60.0) top = 60.0;                       // 不许顶出状态栏
@@ -527,6 +540,10 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     }
     panel.frame = CGRectMake(([UIScreen mainScreen].bounds.size.width - width) / 2.0,
                              top, width, CGRectGetHeight(panel.bounds));
+
+    // 还原上次滚到的位置：调参数刷新列表时不再回弹到顶部
+    CGFloat maxOffsetY = MAX(0.0, scroll.contentSize.height - scroll.bounds.size.height);
+    scroll.contentOffset = CGPointMake(0, MIN(MAX(self.panelKeepOffset, 0.0), maxOffsetY));
 }
 
 /// 九色逐字彩虹文字
@@ -546,14 +563,22 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 }
 
 - (void)hidePanel {
-    [self.panelDismissView removeFromSuperview];
-    self.panelDismissView = nil;
+    if (self.panelScroll) self.panelKeepOffset = self.panelScroll.contentOffset.y;
+    UIView *hostRoot = self.window.rootViewController.view;
+    if ([hostRoot isKindOfClass:[ANVPassthroughView class]]) {
+        ((ANVPassthroughView *)hostRoot).capturesBlankTouches = NO;
+    }
+    self.panelTap.enabled = NO;
     [self.panelView removeFromSuperview];
     self.panelView = nil;
+    self.panelScroll = nil;
 }
 
 /// 点在设置列表外面的空白处 = 收起列表
 - (void)panelBlankTapped:(UITapGestureRecognizer *)tap {
+    if (!self.panelView) return;
+    CGPoint point = [tap locationInView:self.window.rootViewController.view];
+    if (CGRectContainsPoint(self.panelView.frame, point)) return;
     [self hidePanel];
 }
 
@@ -586,8 +611,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [self.petView setNeedsDisplay];
     }
     [self layoutWidgets];
-    [self hidePanel];
-    [self showPanel];
+    [self refreshPanel];
 }
 
 - (void)applyHaloSettings {
@@ -709,12 +733,13 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 }
 
 - (void)refreshPanel {
+    // 刷新列表时保住当前滚动位置，不然每调一次都弹回顶部（hidePanel 里已经记住位置，showPanel 会还原）
     [self hidePanel];
     [self showPanel];
 }
 
 - (void)rebuildBar {
-    [self hidePanel];
+    BOOL panelWasOpen = (self.panelView != nil);
     [self.barView removeFromSuperview];
     self.barView = nil;
     self.spectrumView = nil;
@@ -723,6 +748,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     [self.buttons removeAllObjects];
     [self buildBar];
     [self updateFrame];
+    // 重建条之后列表还开着：原地刷新，别把列表关掉、也别把滚动位置丢回顶部
+    if (panelWasOpen) [self refreshPanel];
 }
 
 - (void)panelRowTapped:(UIButton *)row {
@@ -732,8 +759,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     if (index <= 3) {
         NSInteger next = ([[ANVSettings shared] actionForSlot:index] + 1) % 9;
         [settings saveAction:(ANVKeyAction)next forSlot:index];
-        [self hidePanel];
-        [self showPanel];
+        [self refreshPanel];
         return;
     }
 
@@ -751,20 +777,17 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         self.spectrumView.widthRatio = settings.spectrumWidth;
         self.spectrumView.heightRatio = settings.spectrumHeight;
         self.spectrumView.thickness = settings.spectrumThickness;
-            [self hidePanel];
-            [self showPanel];
+            [self refreshPanel];
             break;
         }
         case 8: {
             [settings saveSpectrumSensitivity:settings.spectrumSensitivity + 0.1];
-            [self hidePanel];
-            [self showPanel];
+            [self refreshPanel];
             break;
         }
         case 9: {
             [settings saveSpectrumSensitivity:settings.spectrumSensitivity - 0.1];
-            [self hidePanel];
-            [self showPanel];
+            [self refreshPanel];
             break;
         }
         case 222: [settings saveBubbleDX:settings.bubbleDX + 8]; [self applyBubbleSettings]; break;
@@ -779,30 +802,32 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 231: [settings saveBubbleAlpha:settings.bubbleAlpha - 0.1]; [self applyBubbleSettings]; break;
         case 232: [settings saveHaloDotScale:settings.haloDotScale + 0.1]; [self applyHaloSettings]; [self refreshPanel]; break;
         case 233: [settings saveHaloDotScale:settings.haloDotScale - 0.1]; [self applyHaloSettings]; [self refreshPanel]; break;
-        case 234: [settings saveHaloRainbow:!settings.haloRainbow]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
+        case 234: [settings saveHaloRainbow:!settings.haloRainbow]; [self applyHaloSettings]; [self refreshPanel]; break;
         case 242: [settings saveRecentsStyle:([ANVSettings shared].recentsStyle == 1 ? 0 : 1)];
-                  [self hidePanel]; [self showPanel]; break;
-        case 241: [self setBarHidden:!self.barHidden]; [self hidePanel]; [self showPanel]; break;
-        case 238: [settings saveHandleEnabled:!settings.handleEnabled]; [self updateFrame]; [self hidePanel]; [self showPanel]; break;
-        case 239: [settings saveHandleSensitivity:settings.handleSensitivity + 0.1]; [self updateFrame]; [self hidePanel]; [self showPanel]; break;
-        case 240: [settings saveHandleSensitivity:settings.handleSensitivity - 0.1]; [self updateFrame]; [self hidePanel]; [self showPanel]; break;
+                  [self refreshPanel]; break;
+        case 241: [self setBarHidden:!self.barHidden]; [self refreshPanel]; break;
+        case 238: [settings saveHandleEnabled:!settings.handleEnabled]; [self updateFrame]; [self refreshPanel]; break;
+        case 239: [settings saveHandleSensitivity:settings.handleSensitivity + 0.1]; [self updateFrame]; [self refreshPanel]; break;
+        case 240: [settings saveHandleSensitivity:settings.handleSensitivity - 0.1]; [self updateFrame]; [self refreshPanel]; break;
         case 237: [settings saveBubbleAutoFit:!settings.bubbleAutoFit]; [self applyBubbleSettings]; break;
-        case 236: [settings saveKeyBackgroundMode:(settings.keyBackgroundMode + 1) % 3]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
-        case 235: [settings saveHaloBounce:!settings.haloBounce]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
-        case 243: [settings saveHaloMotion:(settings.haloMotion + 1) % 6]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
-        case 244: [settings saveHandleEdgeHide:!settings.handleEdgeHide]; [self updateFrame]; [self hidePanel]; [self showPanel]; break;
-        case 221: [settings savePetSide:(settings.petSide + 1) % 3]; [self layoutWidgets]; [self hidePanel]; [self showPanel]; break;
-        case 220: [settings savePetCount:(settings.petCount % 5) + 1]; [self applyPetCount]; [self hidePanel]; [self showPanel]; break;
-        case 218: [settings savePetAction:(settings.petAction + 1) % 22]; [self applyPetAction]; [self hidePanel]; [self showPanel]; break;
-        case 219: [settings saveShowOnLockScreen:!settings.showOnLockScreen]; [self updateLockVisibility]; [self hidePanel]; [self showPanel]; break;
-        case 217: [settings savePetStyle:(settings.petStyle + 1) % 11]; [self applyPetStyle]; [self hidePanel]; [self showPanel]; break;
-        case 210: [settings saveBarOrientation:(settings.barOrientation + 1) % 3]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
-        case 211: [settings savePetEnabled:!settings.petEnabled]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
-        case 212: [settings savePetScale:settings.petScale + 0.1]; [self applyWidgetSettings]; [self hidePanel]; [self showPanel]; break;
-        case 213: [settings savePetScale:settings.petScale - 0.1]; [self applyWidgetSettings]; [self hidePanel]; [self showPanel]; break;
-        case 214: [settings saveLyricEnabled:!settings.lyricEnabled]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
-        case 215: [settings saveLyricScale:settings.lyricScale + 0.1]; [self applyWidgetSettings]; [self hidePanel]; [self showPanel]; break;
-        case 216: [settings saveLyricScale:settings.lyricScale - 0.1]; [self applyWidgetSettings]; [self hidePanel]; [self showPanel]; break;
+        case 236: [settings saveKeyBackgroundMode:(settings.keyBackgroundMode + 1) % 3]; [self rebuildBar]; [self refreshPanel]; break;
+        case 235: [settings saveHaloBounce:!settings.haloBounce]; [self applyHaloSettings]; [self refreshPanel]; break;
+        case 243: [settings saveHaloMotion:(settings.haloMotion + 1) % 6]; [self applyHaloSettings]; [self refreshPanel]; break;
+        case 244: [settings saveHandleEdgeHide:!settings.handleEdgeHide]; [self updateFrame]; [self refreshPanel]; break;
+        case 245: [settings saveRecentsOffsetY:settings.recentsOffsetY + 20]; [self refreshPanel]; break;
+        case 246: [settings saveRecentsOffsetY:settings.recentsOffsetY - 20]; [self refreshPanel]; break;
+        case 221: [settings savePetSide:(settings.petSide + 1) % 3]; [self layoutWidgets]; [self refreshPanel]; break;
+        case 220: [settings savePetCount:(settings.petCount % 5) + 1]; [self applyPetCount]; [self refreshPanel]; break;
+        case 218: [settings savePetAction:(settings.petAction + 1) % 22]; [self applyPetAction]; [self refreshPanel]; break;
+        case 219: [settings saveShowOnLockScreen:!settings.showOnLockScreen]; [self updateLockVisibility]; [self refreshPanel]; break;
+        case 217: [settings savePetStyle:(settings.petStyle + 1) % 11]; [self applyPetStyle]; [self refreshPanel]; break;
+        case 210: [settings saveBarOrientation:(settings.barOrientation + 1) % 3]; [self rebuildBar]; [self refreshPanel]; break;
+        case 211: [settings savePetEnabled:!settings.petEnabled]; [self rebuildBar]; [self refreshPanel]; break;
+        case 212: [settings savePetScale:settings.petScale + 0.1]; [self applyWidgetSettings]; [self refreshPanel]; break;
+        case 213: [settings savePetScale:settings.petScale - 0.1]; [self applyWidgetSettings]; [self refreshPanel]; break;
+        case 214: [settings saveLyricEnabled:!settings.lyricEnabled]; [self rebuildBar]; [self refreshPanel]; break;
+        case 215: [settings saveLyricScale:settings.lyricScale + 0.1]; [self applyWidgetSettings]; [self refreshPanel]; break;
+        case 216: [settings saveLyricScale:settings.lyricScale - 0.1]; [self applyWidgetSettings]; [self refreshPanel]; break;
         case 200: [settings saveSpectrumWidth:settings.spectrumWidth + 0.1]; [self applySpectrumSettings]; [self refreshPanel]; break;
         case 201: [settings saveSpectrumWidth:settings.spectrumWidth - 0.1]; [self applySpectrumSettings]; [self refreshPanel]; break;
         case 202: [settings saveSpectrumHeight:settings.spectrumHeight + 0.1]; [self applySpectrumSettings]; [self refreshPanel]; break;
@@ -814,28 +839,24 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 10: {
             [settings saveMicSpectrum:!settings.micSpectrum];
             [ANVMusicMonitor shared].micEnabled = settings.micSpectrum;
-            [self hidePanel];
-            [self showPanel];
+            [self refreshPanel];
             break;
         }
         case 11: {
             [settings saveSimulateSpectrum:!settings.simulateSpectrum];
             [ANVMusicMonitor shared].simulateEnabled = settings.simulateSpectrum;
-            [self hidePanel];
-            [self showPanel];
+            [self refreshPanel];
             break;
         }
         case 12: {
             [settings saveEdgeToEdge:!settings.edgeToEdge];
             [self updateFrame];
-            [self hidePanel];
-            [self showPanel];
+            [self refreshPanel];
             break;
         }
         case 13: {
             [settings savePositionLocked:!settings.positionLocked];
-            [self hidePanel];
-            [self showPanel];
+            [self refreshPanel];
             break;
         }
         case 6: {
@@ -902,6 +923,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     UIViewController *controller = [[UIViewController alloc] init];
     controller.view = root;
     self.window.rootViewController = controller;
+    self.panelTap = nil;
 
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
@@ -1425,6 +1447,10 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                                                  CGRectGetMinY(bar) - lyricH / 2.0 - 6.0);
         }
     }
+
+    // 宠物 / 歌词是后加进来的兄弟视图，正好盖在拉手那条不可见拖动区上，
+    // 不重新提层的话拉手永远收不到触摸（表现就是「拉手无效」）
+    [self layoutDragHandle];
 }
 
 - (void)updateFrame {
@@ -1568,10 +1594,11 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     if (st.handleEdgeHide) {
         CGRect screen = [UIScreen mainScreen].bounds;
         CGFloat slack = 2.0;
+        CGFloat bottomLimit = screen.size.height - [self dockBottomInset];
         BOOL edge = (CGRectGetMinX(bar) <= slack ||
                      CGRectGetMaxX(bar) >= screen.size.width - slack ||
                      CGRectGetMinY(bar) <= slack ||
-                     CGRectGetMaxY(bar) >= screen.size.height - slack ||
+                     CGRectGetMaxY(bar) >= bottomLimit - slack ||
                      CGRectGetMinX(f) < -slack ||
                      CGRectGetMaxX(f) > screen.size.width + slack ||
                      CGRectGetMinY(f) < -slack ||
