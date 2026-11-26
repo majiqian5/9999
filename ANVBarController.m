@@ -4,7 +4,6 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import "ANVActions.h"
-#import "ANVRecents.h"
 #import "ANVHistory.h"
 #import "ANVSettings.h"
 #import "ANVSpectrumView.h"
@@ -26,13 +25,13 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, strong) UIView *barView;
 @property (nonatomic, strong) UIVisualEffectView *blurView;
 @property (nonatomic, copy) NSString *infoLineText;
-@property (nonatomic, strong) UIView *dragHandle;
-@property (nonatomic, strong) UITapGestureRecognizer *panelTap;
+@property (nonatomic, strong) UIView *blankCatcher;      // 面板打开时铺满窗口的透明接收层
+@property (nonatomic, assign) CFTimeInterval lastBeatHaptic;
+@property (nonatomic, assign) CFTimeInterval lastAudioAt;
 @property (nonatomic, strong) UIScrollView *panelScroll;
 @property (nonatomic, assign) CGFloat panelKeepOffset;   // 记住列表滚到哪，刷新后不跳回顶部
 @property (nonatomic, assign) BOOL barHidden;
 @property (nonatomic, strong) UIView *restoreDot;
-@property (nonatomic, assign) BOOL handleArmed;
 @property (nonatomic, copy) NSString *wishText;
 @property (nonatomic, assign) CFTimeInterval wishUntil;
 @property (nonatomic, strong) NSMutableArray<ANVGlyphView *> *glyphViews;
@@ -408,14 +407,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"光环动作 · %@", [self haloMotionTitle]],
         [NSString stringWithFormat:@"键背景 · %@", [self keyBgTitle]],
         [NSString stringWithFormat:@"气泡自适应歌词 · %@", st.bubbleAutoFit ? @"开" : @"关"],
-        [NSString stringWithFormat:@"拉手 · %@", st.handleEnabled ? @"开" : @"关"],
-        [NSString stringWithFormat:@"拉手灵敏度 %ld%% · 加", (long)lround(st.handleSensitivity * 100)],
-        [NSString stringWithFormat:@"拉手灵敏度 %ld%% · 减", (long)lround(st.handleSensitivity * 100)],
-        [NSString stringWithFormat:@"拉手贴边隐藏 · %@", st.handleEdgeHide ? @"开" : @"关"],
+        [NSString stringWithFormat:@"节拍触感 · %@", [self beatHapticsTitle]],
+        [NSString stringWithFormat:@"夜间自动调暗 · %@", st.nightDim ? @"开" : @"关"],
         [NSString stringWithFormat:@"一键隐藏导航条 · %@", self.barHidden ? @"点此显示" : @"点此收起"],
-        [NSString stringWithFormat:@"后台卡片 · %@", ([ANVSettings shared].recentsStyle == 1 ? @"叠卡" : @"原生")],
-        [NSString stringWithFormat:@"后台卡片 Y %ld · 上移", (long)lround(st.recentsOffsetY)],
-        [NSString stringWithFormat:@"后台卡片 Y %ld · 下移", (long)lround(st.recentsOffsetY)],
         [NSString stringWithFormat:@"麦克风频谱 · %@", st.micSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"模拟频谱 · %@", st.simulateSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"位置 · %@", st.positionLocked ? @"已锁定" : @"可拖动"],
@@ -427,8 +421,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                       @200, @201, @202, @203, @204, @205, @206, @207,
                       @210, @211, @212, @213, @217, @220, @221, @218, @219, @214, @215, @216,
                       @222, @223, @224, @225, @226, @227, @228, @229, @230, @231,
-                      @232, @233, @234, @235, @243, @236, @237, @238, @239, @240, @244, @241, @242,
-                      @245, @246,
+                      @232, @233, @234, @235, @243, @236, @237, @250, @251, @241,
                       @10, @11, @13, @14, @15];
 
     if (titles.count > 18) rowH = 30.0;
@@ -514,24 +507,25 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     self.panelView = panel;
 
-    // 点空白收起：面板打开期间让全屏容器接管空白区的触摸，点面板外任意空白都关
-    // （之前那层透明接收层会被容器的 hitTest 漏掉，所以点了没反应）
-    UIView *hostRoot = self.window.rootViewController.view;
-    if ([hostRoot isKindOfClass:[ANVPassthroughView class]]) {
-        ((ANVPassthroughView *)hostRoot).capturesBlankTouches = YES;
-    }
-    if (!self.panelTap) {
+    // 点空白收起：在窗口最上层铺一层透明接收层，面板放在它上面。
+    // 触摸从最上层往下命中，点面板外就一定落在接收层上，一定关得掉。
+    UIWindow *win = self.window;
+    if (!self.blankCatcher) {
+        UIView *catcher = [[UIView alloc] initWithFrame:win.bounds];
+        catcher.backgroundColor = [UIColor clearColor];
+        catcher.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         UITapGestureRecognizer *tapOut = [[UITapGestureRecognizer alloc]
             initWithTarget:self action:@selector(panelBlankTapped:)];
         tapOut.numberOfTapsRequired = 1;
         tapOut.cancelsTouchesInView = NO;
-        [hostRoot addGestureRecognizer:tapOut];
-        self.panelTap = tapOut;
+        [catcher addGestureRecognizer:tapOut];
+        self.blankCatcher = catcher;
     }
-    self.panelTap.enabled = YES;
+    self.blankCatcher.frame = win.bounds;
+    [win addSubview:self.blankCatcher];
 
-    // 面板放到全屏容器上，否则超出 bar 边界就收不到点击
-    [hostRoot addSubview:panel];
+    // 面板放到接收层上，否则超出 bar 边界就收不到点击
+    [self.blankCatcher addSubview:panel];
     CGRect barFrame = self.barView.frame;
     CGFloat top = CGRectGetMinY(barFrame) - CGRectGetHeight(panel.bounds) - 8.0;
     if (top < 60.0) top = 60.0;                       // 不许顶出状态栏
@@ -564,22 +558,52 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
 - (void)hidePanel {
     if (self.panelScroll) self.panelKeepOffset = self.panelScroll.contentOffset.y;
-    UIView *hostRoot = self.window.rootViewController.view;
-    if ([hostRoot isKindOfClass:[ANVPassthroughView class]]) {
-        ((ANVPassthroughView *)hostRoot).capturesBlankTouches = NO;
-    }
-    self.panelTap.enabled = NO;
     [self.panelView removeFromSuperview];
     self.panelView = nil;
     self.panelScroll = nil;
+    [self.blankCatcher removeFromSuperview];
+    self.blankCatcher = nil;
 }
 
 /// 点在设置列表外面的空白处 = 收起列表
 - (void)panelBlankTapped:(UITapGestureRecognizer *)tap {
     if (!self.panelView) return;
-    CGPoint point = [tap locationInView:self.window.rootViewController.view];
+    CGPoint point = [tap locationInView:self.blankCatcher];
     if (CGRectContainsPoint(self.panelView.frame, point)) return;
     [self hidePanel];
+}
+
+/// 夜间（22:00–07:00）自动把条调暗一档，白天恢复原透明度
+- (CGFloat)nightAdjustedOpacity {
+    CGFloat o = [ANVSettings shared].opacity;
+    if (![ANVSettings shared].nightDim) return o;
+    NSInteger hour = [[NSCalendar currentCalendar] component:NSCalendarUnitHour fromDate:[NSDate date]];
+    if (hour >= 22 || hour < 7) o *= 0.60;
+    return MAX(0.12, o);
+}
+
+- (NSString *)beatHapticsTitle {
+    switch ([ANVSettings shared].beatHaptics) {
+        case 1: return @"轻";
+        case 2: return @"中";
+        case 3: return @"强";
+        default: return @"关";
+    }
+}
+
+/// 强拍反馈：音乐每"咚"一下轻震一次（0.2 秒内不重复，免得糊成一片）
+- (void)handleBeat:(CGFloat)energy {
+    ANVSettings *st = [ANVSettings shared];
+    CFTimeInterval now = CACurrentMediaTime();
+    self.lastAudioAt = now;
+    if (st.beatHaptics <= 0) return;
+    if (now - self.lastBeatHaptic < 0.18) return;
+    self.lastBeatHaptic = now;
+    UIImpactFeedbackStyle style = UIImpactFeedbackStyleLight;
+    if (st.beatHaptics == 2) style = UIImpactFeedbackStyleMedium;
+    else if (st.beatHaptics == 3) style = UIImpactFeedbackStyleHeavy;
+    UIImpactFeedbackGenerator *g = [[UIImpactFeedbackGenerator alloc] initWithStyle:style];
+    [g impactOccurredWithIntensity:MIN(1.0, 0.35 + energy * 0.65)];
 }
 
 /// 光环动作名字
@@ -590,7 +614,10 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 2: return @"浮动";
         case 3: return @"波浪";
         case 4: return @"双环";
-        default: return @"全开";
+        case 5: return @"全开";
+        case 6: return @"螺旋";
+        case 7: return @"爆闪";
+        default: return @"雨刷";
     }
 }
 
@@ -803,19 +830,13 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 232: [settings saveHaloDotScale:settings.haloDotScale + 0.1]; [self applyHaloSettings]; [self refreshPanel]; break;
         case 233: [settings saveHaloDotScale:settings.haloDotScale - 0.1]; [self applyHaloSettings]; [self refreshPanel]; break;
         case 234: [settings saveHaloRainbow:!settings.haloRainbow]; [self applyHaloSettings]; [self refreshPanel]; break;
-        case 242: [settings saveRecentsStyle:([ANVSettings shared].recentsStyle == 1 ? 0 : 1)];
-                  [self refreshPanel]; break;
         case 241: [self setBarHidden:!self.barHidden]; [self refreshPanel]; break;
-        case 238: [settings saveHandleEnabled:!settings.handleEnabled]; [self updateFrame]; [self refreshPanel]; break;
-        case 239: [settings saveHandleSensitivity:settings.handleSensitivity + 0.1]; [self updateFrame]; [self refreshPanel]; break;
-        case 240: [settings saveHandleSensitivity:settings.handleSensitivity - 0.1]; [self updateFrame]; [self refreshPanel]; break;
+        case 250: [settings saveBeatHaptics:(settings.beatHaptics + 1) % 4]; [self refreshPanel]; break;
+        case 251: [settings saveNightDim:!settings.nightDim]; [self updateFrame]; [self refreshPanel]; break;
         case 237: [settings saveBubbleAutoFit:!settings.bubbleAutoFit]; [self applyBubbleSettings]; break;
         case 236: [settings saveKeyBackgroundMode:(settings.keyBackgroundMode + 1) % 3]; [self rebuildBar]; [self refreshPanel]; break;
         case 235: [settings saveHaloBounce:!settings.haloBounce]; [self applyHaloSettings]; [self refreshPanel]; break;
-        case 243: [settings saveHaloMotion:(settings.haloMotion + 1) % 6]; [self applyHaloSettings]; [self refreshPanel]; break;
-        case 244: [settings saveHandleEdgeHide:!settings.handleEdgeHide]; [self updateFrame]; [self refreshPanel]; break;
-        case 245: [settings saveRecentsOffsetY:settings.recentsOffsetY + 20]; [self refreshPanel]; break;
-        case 246: [settings saveRecentsOffsetY:settings.recentsOffsetY - 20]; [self refreshPanel]; break;
+        case 243: [settings saveHaloMotion:(settings.haloMotion + 1) % 9]; [self applyHaloSettings]; [self refreshPanel]; break;
         case 221: [settings savePetSide:(settings.petSide + 1) % 3]; [self layoutWidgets]; [self refreshPanel]; break;
         case 220: [settings savePetCount:(settings.petCount % 5) + 1]; [self applyPetCount]; [self refreshPanel]; break;
         case 218: [settings savePetAction:(settings.petAction + 1) % 22]; [self applyPetAction]; [self refreshPanel]; break;
@@ -923,7 +944,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     UIViewController *controller = [[UIViewController alloc] init];
     controller.view = root;
     self.window.rootViewController = controller;
-    self.panelTap = nil;
+    self.blankCatcher = nil;
 
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
@@ -1028,6 +1049,11 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [self.barView addSubview:clip];
         self.spectrumClip = clip;
 
+        __weak typeof(self) weakSelf = self;
+        self.spectrumView.onBeat = ^(CGFloat energy) {
+            __strong typeof(weakSelf) strongSelf = weakSelf;
+            if (strongSelf) [strongSelf handleBeat:energy];
+        };
         self.spectrumView.style = (ANVSpectrumStyle)settings.spectrumStyle;
         self.spectrumView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     }
@@ -1128,6 +1154,15 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
 - (void)tick:(CADisplayLink *)link {
     if (!self.spectrumView) return;
+
+    // 每两秒校准一次夜间调暗（跨过 22:00 / 07:00 时也会自动生效）
+    static CFTimeInterval lastDim = 0;
+    CFTimeInterval nowDim = CACurrentMediaTime();
+    if (nowDim - lastDim > 2.0) {
+        lastDim = nowDim;
+        CGFloat target = [self nightAdjustedOpacity];
+        if (!self.barHidden && fabs(self.barView.alpha - target) > 0.01) self.barView.alpha = target;
+    }
 
     float levels[10] = {0};
     [[ANVMusicMonitor shared] fillLevels:levels count:10];
@@ -1448,9 +1483,6 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         }
     }
 
-    // 宠物 / 歌词是后加进来的兄弟视图，正好盖在拉手那条不可见拖动区上，
-    // 不重新提层的话拉手永远收不到触摸（表现就是「拉手无效」）
-    [self layoutDragHandle];
 }
 
 - (void)updateFrame {
@@ -1480,11 +1512,24 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         self.restoreDot.center = center;
         return;
     }
-    [self layoutDragHandle];
+    self.barView.alpha = [self nightAdjustedOpacity];
 }
 
-/// 隐藏拉手：一块透明的可拖区域，贴在条的外侧，专门用来挪条（不碰图标）
+/// 双击导航条：正在放音乐就切「播放 / 暂停」，没有音乐时还是原来的「收起 / 显示」
 - (void)handleBarDoubleTap:(UITapGestureRecognizer *)tap {
+    ANVMusicMonitor *music = [ANVMusicMonitor shared];
+    BOOL recentlyAudible = (CACurrentMediaTime() - self.lastAudioAt) < 30.0;
+    if (music.isPlaying || recentlyAudible) {
+        BOOL ok = music.isPlaying ? [ANVActions mediaPause] : [ANVActions mediaPlay];
+        if (ok) {
+            if ([ANVSettings shared].haptics) {
+                UIImpactFeedbackGenerator *g = [[UIImpactFeedbackGenerator alloc]
+                    initWithStyle:UIImpactFeedbackStyleLight];
+                [g impactOccurred];
+            }
+            return;
+        }
+    }
     [self setBarHidden:!self.barHidden];
 }
 
@@ -1516,8 +1561,6 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         self.restoreDot.center = center;
         self.restoreDot.hidden = NO;
 
-        [[ANVRecents shared] dismiss];
-        if (self.dragHandle) { [self.dragHandle removeFromSuperview]; self.dragHandle = nil; }
         [self hidePanel];
         [UIView animateWithDuration:0.22 animations:^{
             self.barView.alpha = 0.0;
@@ -1547,112 +1590,6 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
 - (void)restoreDotTapped:(UITapGestureRecognizer *)tap {
     [self setBarHidden:NO];
-}
-
-- (void)layoutDragHandle {
-    ANVSettings *st = [ANVSettings shared];
-    if (!self.barView.superview) return;
-
-    // 关掉就彻底移除，不留一块看不见的可点区域
-    if (!st.handleEnabled) {
-        if (self.dragHandle) {
-            [self.dragHandle removeFromSuperview];
-            self.dragHandle = nil;
-        }
-        return;
-    }
-
-    if (!self.dragHandle) {
-        self.dragHandle = [[UIView alloc] initWithFrame:CGRectZero];
-        self.dragHandle.backgroundColor = [UIColor clearColor];
-        self.dragHandle.userInteractionEnabled = YES;
-        UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc]
-            initWithTarget:self action:@selector(handleHiddenDrag:)];
-        pan.minimumNumberOfTouches = 1;
-        [self.dragHandle addGestureRecognizer:pan];
-        [self.barView.superview addSubview:self.dragHandle];
-    }
-    [self.barView.superview bringSubviewToFront:self.dragHandle];
-    self.dragHandle.hidden = !st.handleEnabled;
-
-    CGRect bar = self.barView.frame;
-    CGFloat thick = 8.0 + 18.0 * st.handleSensitivity;      // 灵敏度直接改抓取厚度
-    BOOL vertical = ([ANVSettings shared].barOrientation != 0);
-    CGRect f;
-    if (vertical) {
-        if ([ANVSettings shared].barOrientation == 2) {
-            f = CGRectMake(CGRectGetMaxX(bar), CGRectGetMinY(bar), thick, CGRectGetHeight(bar));
-        } else {
-            f = CGRectMake(CGRectGetMinX(bar) - thick, CGRectGetMinY(bar), thick, CGRectGetHeight(bar));
-        }
-    } else {
-        f = CGRectMake(CGRectGetMinX(bar), CGRectGetMinY(bar) - thick, CGRectGetWidth(bar), thick);
-    }
-
-    // 贴边隐藏：条已经贴着屏幕边（或拉手本身要伸出屏幕）时，拉手直接收起来，
-    // 免得挡住边缘的返回手势 / 被屏幕裁掉一半。离开边缘它自己会回来。
-    if (st.handleEdgeHide) {
-        CGRect screen = [UIScreen mainScreen].bounds;
-        CGFloat slack = 2.0;
-        CGFloat bottomLimit = screen.size.height - [self dockBottomInset];
-        BOOL edge = (CGRectGetMinX(bar) <= slack ||
-                     CGRectGetMaxX(bar) >= screen.size.width - slack ||
-                     CGRectGetMinY(bar) <= slack ||
-                     CGRectGetMaxY(bar) >= bottomLimit - slack ||
-                     CGRectGetMinX(f) < -slack ||
-                     CGRectGetMaxX(f) > screen.size.width + slack ||
-                     CGRectGetMinY(f) < -slack ||
-                     CGRectGetMaxY(f) > screen.size.height + slack);
-        if (edge) {
-            self.dragHandle.hidden = YES;
-            self.dragHandle.frame = CGRectZero;
-            return;
-        }
-    }
-    self.dragHandle.hidden = NO;
-    self.dragHandle.frame = f;
-}
-
-- (void)handleHiddenDrag:(UIPanGestureRecognizer *)pan {
-    ANVSettings *st = [ANVSettings shared];
-    if (st.positionLocked) return;
-    CGFloat need = 12.0 / MAX(st.handleSensitivity, 0.3);   // 灵敏度越高，越短的距离就能拉动
-
-    switch (pan.state) {
-        case UIGestureRecognizerStateBegan:
-            self.handleArmed = NO;
-            self.dragStartCenter = self.barView.center;
-            break;
-        case UIGestureRecognizerStateChanged: {
-            CGPoint t = [pan translationInView:nil];
-            if (!self.handleArmed) {
-                if (hypot(t.x, t.y) < need) return;
-                self.handleArmed = YES;
-            }
-            CGRect screen = [UIScreen mainScreen].bounds;
-            CGSize barSz = self.barView.bounds.size;
-            CGPoint c = CGPointMake(self.dragStartCenter.x + t.x, self.dragStartCenter.y + t.y);
-            CGFloat limitY = screen.size.height - barSz.height / 2.0 - [self dockBottomInset];
-            c.y = MIN(MAX(c.y, barSz.height / 2.0), limitY);
-            c.x = MIN(MAX(c.x, barSz.width / 2.0), screen.size.width - barSz.width / 2.0);
-            self.barView.center = c;
-            [self layoutDragHandle];
-            break;
-        }
-        case UIGestureRecognizerStateEnded:
-        case UIGestureRecognizerStateCancelled: {
-            if (self.handleArmed) {
-                CGRect screen = [UIScreen mainScreen].bounds;
-                CGPoint c = self.barView.center;
-                [[ANVSettings shared] saveCenter:CGPointMake(c.x / screen.size.width,
-                                                             c.y / screen.size.height)];
-                [self updateFrame];
-            }
-            self.handleArmed = NO;
-            break;
-        }
-        default: break;
-    }
 }
 
 - (void)orientationChanged:(NSNotification *)note {
@@ -1830,15 +1767,6 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
         UIImpactFeedbackGenerator *generator =
             [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
         [generator impactOccurred];
-    }
-
-    if ([[ANVSettings shared] recentsStyle] == 1 && (kind == ANVGlyphRecents || kind == ANVGlyphHome)) {
-        if (kind == ANVGlyphHome) {
-            [[ANVRecents shared] dismiss];
-        } else {
-            [[ANVRecents shared] toggleInHost:self.barView.superview];
-            return;
-        }
     }
 
     BOOL ok = [ANVActions performGlyph:kind];

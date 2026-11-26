@@ -55,8 +55,12 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 @property (nonatomic, readonly) CGFloat haloDotScale;   // 光环点大小 0.6~2.0
 @property (nonatomic, readonly) BOOL haloRainbow;       // 九色彩虹
 @property (nonatomic, readonly) BOOL haloBounce;        // 逐颗弹跳
-/// 光环旋律动作：0 呼吸 / 1 摇摆 / 2 浮动 / 3 波浪 / 4 双环 / 5 全开
+/// 光环旋律动作：0 呼吸 / 1 摇摆 / 2 浮动 / 3 波浪 / 4 双环 / 5 全开 / 6 螺旋 / 7 爆闪 / 8 雨刷
 @property (nonatomic, readonly) NSInteger haloMotion;
+/// 节拍触感：0 关 / 1 轻 / 2 中 / 3 强（音乐强拍时轻震一下）
+@property (nonatomic, readonly) NSInteger beatHaptics;
+/// 夜间自动调暗：22:00–07:00 自动把导航条调暗一档
+@property (nonatomic, readonly) BOOL nightDim;
 /// 拉手贴边隐藏：条贴到屏幕边时拉手自动收起，避免挡住边缘手势
 @property (nonatomic, readonly) BOOL handleEdgeHide;
 @property (nonatomic, readonly) BOOL bubbleAutoFit;     // 气泡宽度随歌词长度自适应
@@ -105,6 +109,8 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 - (void)saveHaloRainbow:(BOOL)v;
 - (void)saveHaloBounce:(BOOL)v;
 - (void)saveHaloMotion:(NSInteger)v;
+- (void)saveBeatHaptics:(NSInteger)v;
+- (void)saveNightDim:(BOOL)v;
 - (void)saveHandleEdgeHide:(BOOL)v;
 - (void)saveSpectrumWidth:(CGFloat)v;
 - (void)saveSpectrumHeight:(CGFloat)v;

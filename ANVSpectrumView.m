@@ -118,6 +118,7 @@
         nowH - _haloLastBeat > 0.14) {
         _haloLastBeat = nowH;
         _haloBeatPulse = 1.0;
+        if (self.onBeat) self.onBeat(_haloSmoothEnergy);
     }
     _haloBeatPulse *= exp(-delta * 6.5);
     if (_haloBeatPulse < 0.01) _haloBeatPulse = 0.0;
@@ -500,6 +501,9 @@
     BOOL mFloat  = (motion == 2 || motion == 5);
     BOOL mWave   = (motion == 3 || motion == 5);
     BOOL mDouble = (motion == 4 || motion == 5);
+    BOOL mSpiral = (motion == 6 || motion == 5);   // 螺旋：光点沿半径上下交错，像一条盘着的彩蛇
+    BOOL mBurst  = (motion == 7 || motion == 5);   // 爆闪：每一记强拍整环往外炸一下再收回来
+    BOOL mWiper  = (motion == 8 || motion == 5);   // 雨刷：整环来回摆，像车窗雨刷
 
     CGFloat breath = 1.0;
     if (mBreath) breath = 1.0 + (0.09 + 0.13 * energy) * sin(_phase * 1.9);
@@ -529,6 +533,7 @@
         for (NSInteger i = 0; i < n; i++) {
             CGFloat angle = _haloAngle + (CGFloat)i / (CGFloat)n * 2.0 * (CGFloat)M_PI
                             - (CGFloat)_haloDir * trail;
+            if (mWiper) angle += 0.42 * sin(_phase * 2.2);
             CGFloat level = MAX([self levelAtIndex:(i % kANVSrcBars)], 0.12f);
 
             CGFloat lit = 0.0;
@@ -550,8 +555,10 @@
             // 波浪动作：每个点沿半径正弦错位，相位顺着时间跑
             CGFloat wave = waveAmp * sin(_phase * 3.6 + (CGFloat)i * 0.75) * (pass == 0 ? 1.0 : 0.6);
 
-            CGFloat rx2 = rx + bounce + wave;
-            CGFloat ry2 = ry + bounce * 0.8 + wave * 0.8;
+            CGFloat spiral = mSpiral ? h * 0.05 * sin(_phase * 4.0 + (CGFloat)i * 1.5) : 0.0;
+            CGFloat rGain = mBurst ? (1.0 + 0.22 * beat) : 1.0;
+            CGFloat rx2 = (rx + bounce + wave + spiral) * rGain;
+            CGFloat ry2 = (ry + bounce * 0.8 + wave * 0.8 + spiral * 0.9) * rGain;
             CGFloat x = center.x + cos(angle) * rx2;
             CGFloat y = center.y + sin(angle) * ry2 + cos(angle) * sway * ry2;
 
@@ -595,6 +602,7 @@
     CGFloat corePulse = self.haloBounce ? beat : 0.0;
     CGFloat coreR = (2.2 + 4.2 * energy + 2.2 * corePulse) * dotScale;
     CGFloat hop = self.haloBounce ? -h * 0.11 * corePulse : 0.0;
+    if (mBurst) hop -= h * 0.05 * beat;
     CGFloat coreX = center.x;
     CGFloat coreY = center.y + hop;
     NSInteger sci = (NSInteger)floor(_phase * 2.2) % 9;

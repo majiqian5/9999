@@ -61,6 +61,8 @@ static void ANVSetPref(NSString *key, id value) {
 @property (nonatomic, assign) BOOL haloRainbow;
 @property (nonatomic, assign) BOOL haloBounce;
 @property (nonatomic, assign) NSInteger haloMotion;
+@property (nonatomic, assign) NSInteger beatHaptics;
+@property (nonatomic, assign) BOOL nightDim;
 @property (nonatomic, assign) BOOL handleEdgeHide;
 @property (nonatomic, assign) BOOL bubbleAutoFit;
 @property (nonatomic, assign) CGFloat spectrumWidth;
@@ -211,7 +213,12 @@ static void ANVSetPref(NSString *key, id value) {
     self.haloBounce = hbt ? [hbt boolValue] : YES;
     id hml = ANVCopyPref(@"HaloMotion");
     self.haloMotion = hml ? [hml integerValue] : 0;
-    self.haloMotion = MIN(MAX(self.haloMotion, 0), 5);
+    self.haloMotion = MIN(MAX(self.haloMotion, 0), 8);
+    id bhap = ANVCopyPref(@"BeatHaptics");
+    self.beatHaptics = bhap ? [bhap integerValue] : 0;
+    self.beatHaptics = MIN(MAX(self.beatHaptics, 0), 3);
+    id ndim = ANVCopyPref(@"NightDim");
+    self.nightDim = ndim ? [ndim boolValue] : YES;
     id heh = ANVCopyPref(@"HandleEdgeHide");
     self.handleEdgeHide = heh ? [heh boolValue] : YES;
     id roy = ANVCopyPref(@"RecentsOffsetY");
@@ -353,9 +360,16 @@ static void ANVSetPref(NSString *key, id value) {
 }
 
 - (void)saveHaloMotion:(NSInteger)v {
-    self.haloMotion = MIN(MAX(v, 0), 5);
+    self.haloMotion = MIN(MAX(v, 0), 8);
     ANVSetPref(@"HaloMotion", @(self.haloMotion));
 }
+
+- (void)saveBeatHaptics:(NSInteger)v {
+    self.beatHaptics = MIN(MAX(v, 0), 3);
+    ANVSetPref(@"BeatHaptics", @(self.beatHaptics));
+}
+
+- (void)saveNightDim:(BOOL)v { self.nightDim = v; ANVSetPref(@"NightDim", @(v)); }
 - (void)saveHandleEdgeHide:(BOOL)v { self.handleEdgeHide = v; ANVSetPref(@"HandleEdgeHide", @(v)); }
 
 - (void)saveLyricScale:(CGFloat)v {
