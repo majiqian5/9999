@@ -3,6 +3,7 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <dlfcn.h>
+#import <QuartzCore/QuartzCore.h>
 
 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
@@ -378,13 +379,36 @@ static NSString *ANVAppNameForBundleID(NSString *bundleID) {
     return [bundleID componentsSeparatedByString:@"."].lastObject;
 }
 
+
+#pragma mark - 图像降采样
+
+/// 系统截图是整屏尺寸（1290×2796 那种），7 张卡一起放会拖垮 GPU，
+/// 这里先按卡片实际尺寸缩一遍，滑动才顺。
+static UIImage *ANVDownscaledImage(UIImage *image, CGSize maxSize) {
+    if (!image) return nil;
+    CGSize size = image.size;
+    if (size.width <= 1.0 || size.height <= 1.0) return image;
+    if (size.width <= maxSize.width && size.height <= maxSize.height) return image;
+
+    CGFloat k = MIN(maxSize.width / size.width, maxSize.height / size.height);
+    CGSize target = CGSizeMake(MAX(1.0, floor(size.width * k)), MAX(1.0, floor(size.height * k)));
+    UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat defaultFormat];
+    fmt.scale = 1.0;
+    fmt.opaque = NO;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:target format:fmt];
+    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        [image drawInRect:CGRectMake(0, 0, target.width, target.height)];
+    }];
+}
+
 #pragma mark - 单张卡片
+
 
 @interface ANVRecentsCard : UIView
 @property (nonatomic, copy) NSString *bundleID;
 @property (nonatomic, strong) UIImageView *artView;
 @property (nonatomic, strong) UILabel *nameLabel;
-@property (nonatomic, strong) UIView *glassView;
+@property (nonatomic, strong) CAGradientLayer *gradLayer;
 @end
 
 @implementation ANVRecentsCard
@@ -399,19 +423,23 @@ static NSString *ANVAppNameForBundleID(NSString *bundleID) {
     self.layer.borderWidth = 1.0;
     self.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.30].CGColor;
     self.layer.shadowColor = [UIColor blackColor].CGColor;
-    self.layer.shadowOpacity = 0.42;
-    self.layer.shadowRadius = 14.0;
-    self.layer.shadowOffset = CGSizeMake(0, 8);
+    self.layer.shadowOpacity = 0.34;
+    self.layer.shadowRadius = 12.0;
+    self.layer.shadowOffset = CGSizeMake(0, 6);
+    self.backgroundColor = [UIColor colorWithWhite:0.10 alpha:0.55];
 
-    UIBlurEffect *effect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterialLight];
-    UIVisualEffectView *glass = [[UIVisualEffectView alloc] initWithEffect:effect];
-    glass.frame = self.bounds;
-    glass.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    glass.layer.cornerRadius = 18.0;
-    glass.layer.cornerCurve = kCACornerCurveContinuous;
-    glass.clipsToBounds = YES;
-    [self addSubview:glass];
-    self.glassView = glass;
+    // 静态渐变玻璃（不用 UIVisualEffectView：实时模糊每帧都要重算，滑动必卡）
+    CAGradientLayer *grad = [CAGradientLayer layer];
+    grad.frame = self.bounds;
+    grad.cornerRadius = 18.0;
+    grad.cornerCurve = kCACornerCurveContinuous;
+    grad.masksToBounds = YES;
+    grad.colors = @[(id)[UIColor colorWithWhite:1.0 alpha:0.26].CGColor,
+                    (id)[UIColor colorWithWhite:0.80 alpha:0.13].CGColor,
+                    (id)[UIColor colorWithWhite:0.02 alpha:0.38].CGColor];
+    grad.locations = @[@0.0, @0.45, @1.0];
+    [self.layer addSublayer:grad];
+    self.gradLayer = grad;
 
     self.artView = [[UIImageView alloc] initWithFrame:CGRectZero];
     self.artView.contentMode = UIViewContentModeScaleAspectFill;
@@ -440,6 +468,14 @@ static NSString *ANVAppNameForBundleID(NSString *bundleID) {
     CGFloat nameH = 26.0;
     self.artView.frame = CGRectMake(10.0, 10.0, w - 20.0, h - nameH - 18.0);
     self.nameLabel.frame = CGRectMake(8.0, h - nameH - 6.0, w - 16.0, nameH);
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+    self.gradLayer.frame = self.bounds;
+    // 圆角阴影只画一次路径，之后移动/旋转都不再重算，滑动才不掉帧
+    self.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:self.bounds
+                                                          cornerRadius:18.0].CGPath;
+    [CATransaction commit];
 }
 
 @end
@@ -455,7 +491,6 @@ static NSString *ANVAppNameForBundleID(NSString *bundleID) {
 @property (nonatomic, assign) NSInteger selectedIndex;
 @property (nonatomic, assign) CGFloat cardW;
 @property (nonatomic, assign) CGFloat cardH;
-@property (nonatomic, assign) CGFloat peek;
 @property (nonatomic, assign) CGFloat dragY;
 @end
 
@@ -477,9 +512,8 @@ static NSString *ANVAppNameForBundleID(NSString *bundleID) {
     CGRect bounds = host.bounds;
     CGFloat sw = bounds.size.width;
     CGFloat sh = bounds.size.height;
-    self.cardW = MIN(sw * 0.62, 268.0);
-    self.cardH = MIN(sh * 0.46, self.cardW * 1.72);
-    self.peek = MIN(26.0, self.cardW * 0.11);
+    self.cardW = MIN(sw * 0.52, 240.0);
+    self.cardH = MIN(sh * 0.44, self.cardW * 1.75);
 
     self.bundleIDs = [ANVSwitcherBundleIDs() mutableCopy];
     if (!self.bundleIDs.count) {
@@ -523,8 +557,9 @@ static NSString *ANVAppNameForBundleID(NSString *bundleID) {
             CGRectMake(0, 0, self.cardW, self.cardH)];
         card.bundleID = bid;
 
-        UIImage *snap = ANVSnapshotForBundleID(bid);
-        UIImage *icon = ANVIconImageForBundleID(bid);
+        UIImage *snap = ANVDownscaledImage(ANVSnapshotForBundleID(bid),
+                                          CGSizeMake(self.cardW * 1.6, self.cardH * 1.6));
+        UIImage *icon = ANVDownscaledImage(ANVIconImageForBundleID(bid), CGSizeMake(200.0, 200.0));
         if (snap) {
             card.artView.image = snap;
             card.artView.contentMode = UIViewContentModeScaleAspectFill;
@@ -590,8 +625,11 @@ static NSString *ANVAppNameForBundleID(NSString *bundleID) {
 
 - (void)layoutCardsAnimated:(BOOL)animated {
     CGSize host = self.cardsHost.bounds.size;
-    // 当前这张永远居中，后面的卡片往右后方错开叠上去
-    CGPoint base = CGPointMake(host.width / 2.0, host.height * 0.46);
+    // 扇形：以屏幕下方远处的点为圆心，卡片按角度均匀铺开
+    CGFloat radius = host.height * 0.82;
+    CGFloat baseY = host.height * 0.40;
+    CGPoint pivot = CGPointMake(host.width / 2.0, baseY + radius);
+    CGFloat angleStep = 0.040;
     NSInteger selected = self.selectedIndex;
 
     void (^block)(void) = ^{
@@ -600,11 +638,14 @@ static NSString *ANVAppNameForBundleID(NSString *bundleID) {
             CGFloat d = (CGFloat)(i - selected);
             CGFloat absD = fabs(d);
             CGFloat shown = MIN(absD, 4.0);
-            CGFloat scale = MAX(0.74, 1.0 - shown * 0.055);
-            card.center = CGPointMake(base.x + d * self.peek, base.y + shown * 9.0);
+            CGFloat theta = d * angleStep;
+            CGFloat scale = MAX(0.72, 1.0 - shown * 0.045);
+            card.center = CGPointMake(pivot.x + radius * sin(theta),
+                                      pivot.y - radius * cos(theta) - shown * 3.0);
             card.transform = CGAffineTransformConcat(CGAffineTransformMakeScale(scale, scale),
-                                                     CGAffineTransformMakeRotation(d * 0.012));
-            card.alpha = (absD > 3.0) ? 0.0 : MAX(0.55, 0.95 - absD * 0.12);
+                                                     CGAffineTransformMakeRotation(theta));
+            card.alpha = (absD > 3.0) ? 0.0 : MAX(0.55, 0.96 - absD * 0.11);
+            card.layer.shadowOpacity = (absD == 0.0) ? 0.40 : 0.22;
             card.userInteractionEnabled = (absD <= 3.0);
         }
     };
@@ -625,7 +666,8 @@ static NSString *ANVAppNameForBundleID(NSString *bundleID) {
 
     if (animated) {
         [UIView animateWithDuration:0.24 delay:0
-                            options:UIViewAnimationOptionBeginFromCurrentState
+                            options:UIViewAnimationOptionBeginFromCurrentState |
+                                    UIViewAnimationOptionAllowUserInteraction
                          animations:block completion:nil];
     } else {
         block();
@@ -681,7 +723,7 @@ static NSString *ANVAppNameForBundleID(NSString *bundleID) {
     if (pan.state == UIGestureRecognizerStateChanged) {
         if (fabs(t.x) > fabs(t.y) + 12.0) {
             // 横向：一次翻一张，翻完清零，避免一下翻好几张
-            CGFloat step = MAX(44.0, self.peek * 1.6);
+            CGFloat step = 44.0;
             NSInteger count = (NSInteger)self.bundleIDs.count;
             if (t.x < -step && self.selectedIndex + 1 < count) {
                 self.selectedIndex = MIN(count - 1, self.selectedIndex + 1);
@@ -770,7 +812,7 @@ static NSString *ANVAppNameForBundleID(NSString *bundleID) {
         self.selectedIndex = MAX(0, MIN(count - 1, self.selectedIndex));
     } else if (pan.state == UIGestureRecognizerStateChanged) {
         if (fabs(t.x) < fabs(t.y)) return;
-        CGFloat step = MAX(60.0, self.peek * 2.0);
+        CGFloat step = 60.0;
         if (fabs(t.x) > step) {
             NSInteger shift = (t.x < 0) ? 1 : -1;
             NSInteger target = MAX(0, MIN(count - 1, self.selectedIndex + shift));
