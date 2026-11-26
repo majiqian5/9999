@@ -54,7 +54,11 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 @property (nonatomic, readonly) CGFloat bubbleAlpha;    // 气泡背景不透明度
 @property (nonatomic, readonly) CGFloat haloDotScale;   // 光环点大小 0.6~2.0
 @property (nonatomic, readonly) BOOL haloRainbow;       // 九色彩虹
-@property (nonatomic, readonly) BOOL haloBounce;        // 跳动/弹跳
+@property (nonatomic, readonly) BOOL haloBounce;        // 逐颗弹跳
+/// 光环旋律动作：0 呼吸 / 1 摇摆 / 2 浮动 / 3 波浪 / 4 双环 / 5 全开
+@property (nonatomic, readonly) NSInteger haloMotion;
+/// 拉手贴边隐藏：条贴到屏幕边时拉手自动收起，避免挡住边缘手势
+@property (nonatomic, readonly) BOOL handleEdgeHide;
 @property (nonatomic, readonly) BOOL bubbleAutoFit;     // 气泡宽度随歌词长度自适应
 @property (nonatomic, readonly) CGFloat spectrumWidth;     // 频谱横占比 0.2~1.0
 @property (nonatomic, readonly) CGFloat spectrumHeight;    // 频谱高占比 0.2~1.0
@@ -98,6 +102,8 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 - (void)saveHandleSensitivity:(CGFloat)v;
 - (void)saveHaloRainbow:(BOOL)v;
 - (void)saveHaloBounce:(BOOL)v;
+- (void)saveHaloMotion:(NSInteger)v;
+- (void)saveHandleEdgeHide:(BOOL)v;
 - (void)saveSpectrumWidth:(CGFloat)v;
 - (void)saveSpectrumHeight:(CGFloat)v;
 - (void)saveSpectrumBars:(NSInteger)v;

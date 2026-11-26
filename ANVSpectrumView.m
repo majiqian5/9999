@@ -2,6 +2,7 @@
 
 #define kANVSrcBars 10
 #define kANVMaxBars 24
+#define kANVHaloDots 32
 
 @interface ANVSpectrumView ()
 @end
@@ -14,6 +15,13 @@
     CFTimeInterval _haloFlipAt;
     CGFloat _haloLastEnergy;
     CGFloat _haloSmoothEnergy;
+    // 逐颗点亮 / 逐颗弹跳：每颗点记下它被电平点到的那一刻和那次弹跳的幅度
+    CFTimeInterval _haloPulseAt[kANVHaloDots];
+    CGFloat _haloPulseAmp[kANVHaloDots];
+    CGFloat _haloLitPrev[kANVHaloDots];
+    // 强拍包络：电平突然抬头 = 一下“咚”
+    CFTimeInterval _haloLastBeat;
+    CGFloat _haloBeatPulse;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -89,16 +97,32 @@
     if (self.style >= ANVSpectrumStyleMarquee) [self setNeedsDisplay];
 }
 
-/// 旋转光环：转速吃真实电平（响的时候转得快、安静时慢慢飘），方向随机翻转
+/// 旋转光环：转速吃真实电平（响的时候转得快、安静时不转），方向随机翻转
+/// 点亮的进度也跟着真电平走，电平抬头就一颗一颗往外点，点到的瞬间弹一下
 - (void)advanceHaloWithDelta:(CGFloat)delta {
+    if (delta <= 0.0) return;
+
     CGFloat sum = 0.0;
     for (NSUInteger i = 0; i < (NSUInteger)kANVSrcBars; i++) sum += _levels[i];
-    CGFloat energy = sum / (CGFloat)kANVSrcBars;
+    CGFloat energy = MIN(MAX(sum / (CGFloat)kANVSrcBars, 0.0), 1.0);
 
-    // 平滑一下，避免电平抖一下光环就抽一下
-    _haloSmoothEnergy += (energy - _haloSmoothEnergy) * MIN(1.0, delta * 5.0);
+    // 抬头跟得快、回落带一点拖尾，才像真的跟着电平在跳
+    CGFloat rise = (energy > _haloSmoothEnergy) ? delta * 9.0 : delta * 4.0;
+    _haloSmoothEnergy += (energy - _haloSmoothEnergy) * MIN(1.0, rise);
+    _haloSmoothEnergy = MIN(MAX(_haloSmoothEnergy, 0.0), 1.0);
 
-    // 没声音就彻底停：转速直接归零，不再「安静时慢慢飘」
+    CFTimeInterval nowH = CACurrentMediaTime();
+
+    // 强拍：电平突然抬头给一下弹跳包络（中心点、整环都用它）
+    if (_haloSmoothEnergy > 0.22 && _haloSmoothEnergy > _haloLastEnergy + 0.08 &&
+        nowH - _haloLastBeat > 0.14) {
+        _haloLastBeat = nowH;
+        _haloBeatPulse = 1.0;
+    }
+    _haloBeatPulse *= exp(-delta * 6.5);
+    if (_haloBeatPulse < 0.01) _haloBeatPulse = 0.0;
+
+    // 转速
     CGFloat target = 0.0;
     if (_haloSmoothEnergy > 0.02) {
         target = 0.35 + 6.0 * _haloSmoothEnergy;         // rad/s，响的时候最多约 6.3
@@ -108,13 +132,12 @@
 
     if (_haloDir == 0) {
         _haloDir = 1;
-        _haloFlipAt = CACurrentMediaTime() + 3.0 + (CFTimeInterval)arc4random_uniform(600) / 100.0;
+        _haloFlipAt = nowH + 3.0 + (CFTimeInterval)arc4random_uniform(600) / 100.0;
     }
     _haloAngle += (CGFloat)_haloDir * _haloSpeed * delta;
     if (_haloAngle > 1000.0) _haloAngle = fmod(_haloAngle, 2.0 * (CGFloat)M_PI);
     if (_haloAngle < -1000.0) _haloAngle = fmod(_haloAngle, 2.0 * (CGFloat)M_PI);
 
-    CFTimeInterval nowH = CACurrentMediaTime();
     BOOL flip = NO;
     if (nowH > _haloFlipAt) flip = YES;                                   // 定时随机翻转
     // 强拍也能提前打断：上一帧还很安静、这一帧突然很响
@@ -123,6 +146,23 @@
         _haloDir = -_haloDir;
         _haloFlipAt = nowH + 3.0 + (CFTimeInterval)arc4random_uniform(600) / 100.0;
     }
+
+    // 一颗一颗：点亮进度吃到第几颗，就点亮第几颗，亮起的瞬间记一个弹跳
+    NSInteger n = MIN(MAX(self.barCount, 10), (NSInteger)kANVHaloDots);
+    // 电平 + 强拍包络一起推进点亮进度：每一下“咚”都会把亮点再往前推几颗
+    CGFloat litPos = MIN(1.0, _haloSmoothEnergy + _haloBeatPulse * 0.30) * (CGFloat)n;
+    for (NSInteger i = 0; i < n; i++) {
+        CGFloat lit = 0.0;
+        if ((CGFloat)i < litPos - 1.0) lit = 1.0;
+        else if ((CGFloat)i < litPos) lit = litPos - (CGFloat)i;
+        lit = MIN(MAX(lit, 0.0), 1.0);
+        if (lit > 0.55 && _haloLitPrev[i] < 0.45) {
+            _haloPulseAt[i] = nowH;
+            _haloPulseAmp[i] = 0.55 + 0.45 * MIN(1.0, _haloSmoothEnergy + _haloBeatPulse * 0.35);
+        }
+        _haloLitPrev[i] = lit;
+    }
+
     _haloLastEnergy = _haloSmoothEnergy;
 }
 
@@ -430,32 +470,57 @@
     CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
 }
 
-/// 旋转光环：椭圆轨道上的亮点，逐个按电平点亮，可选九色彩虹与跳动
+/// 旋转光环：椭圆轨道上的亮点，进度跟着真电平一颗一颗点亮，亮起即弹跳
+/// 可选九色彩虹、中心彩虹球，以及几种跟着旋律走的动作（呼吸 / 摇摆 / 浮动 / 波浪 / 双环）
 - (void)drawHaloInContext:(CGContextRef)ctx rect:(CGRect)rect {
     CGRect content = [self contentRectForRect:rect];
-    NSInteger n = MAX(self.barCount, 10);
-    CGFloat rx = CGRectGetWidth(content) * 0.46;
-    CGFloat ry = CGRectGetHeight(content) * 0.44;
+    NSInteger n = MIN(MAX(self.barCount, 10), (NSInteger)kANVHaloDots);
     CGFloat dotScale = MIN(MAX(self.haloDotScale, 0.6), 2.0);
+    CFTimeInterval nowD = CACurrentMediaTime();
+
+    CGFloat w = CGRectGetWidth(content);
+    CGFloat h = CGRectGetHeight(content);
+    CGFloat energy = MIN(MAX(_haloSmoothEnergy, 0.0), 1.0);
+    CGFloat beat = _haloBeatPulse;
 
     // 九色：红 橙 黄 绿 青 蓝 紫 粉 白
     static CGFloat const hues[9] = {0.00, 0.09, 0.14, 0.33, 0.48, 0.58, 0.72, 0.88, 0.00};
     static CGFloat const sats[9] = {0.95, 1.00, 0.95, 1.00, 0.90, 0.95, 0.85, 0.80, 0.00};
+    UIColor *(^nineColor)(NSInteger, CGFloat) = ^UIColor *(NSInteger ci, CGFloat alpha) {
+        NSInteger k = ci % 9;
+        if (k < 0) k += 9;
+        if (sats[k] < 0.1) return [UIColor colorWithWhite:1.0 alpha:alpha];
+        return [UIColor colorWithHue:hues[k] saturation:sats[k] brightness:1.0 alpha:alpha];
+    };
+
+    // 旋律动作
+    NSInteger motion = self.haloMotion;
+    BOOL mBreath = (motion == 0 || motion == 5);
+    BOOL mSway   = (motion == 1 || motion == 5);
+    BOOL mFloat  = (motion == 2 || motion == 5);
+    BOOL mWave   = (motion == 3 || motion == 5);
+    BOOL mDouble = (motion == 4 || motion == 5);
+
+    CGFloat breath = 1.0;
+    if (mBreath) breath = 1.0 + (0.09 + 0.13 * energy) * sin(_phase * 1.9);
+    CGFloat sway = mSway ? 0.13 * sin(_phase * 1.3) : 0.0;                 // 整环左右倾
+    CGFloat floatY = mFloat ? sin(_phase * 0.85) * h * 0.09 * (0.6 + 0.6 * energy) : 0.0;
+    CGFloat waveAmp = mWave ? h * 0.045 * (0.4 + energy) : 0.0;
+
+    CGFloat rx = w * 0.46 * breath;
+    CGFloat ry = h * 0.44 * breath;
+    CGPoint center = CGPointMake(CGRectGetMidX(content),
+                                 CGRectGetMidY(content) + floatY - beat * h * 0.03);
 
     // 轨道底环
     UIBezierPath *track = [UIBezierPath bezierPathWithOvalInRect:
-        CGRectInset(content, CGRectGetWidth(content) * 0.04, CGRectGetHeight(content) * 0.06)];
-    [[UIColor colorWithHue:0.75 saturation:0.5 brightness:1.0 alpha:0.10 + 0.12 * _haloSmoothEnergy] setStroke];
+        CGRectMake(center.x - rx * 0.92, center.y - ry * 0.92, rx * 1.84, ry * 1.84)];
+    [[UIColor colorWithHue:0.75 saturation:0.5 brightness:1.0 alpha:0.10 + 0.12 * energy] setStroke];
     track.lineWidth = 1.0;
     [track stroke];
 
-    CGFloat litPos = _haloSmoothEnergy * (CGFloat)n;      // 亮到第几个点
+    CGFloat litPos = MIN(1.0, energy + beat * 0.30) * (CGFloat)n;   // 亮到第几个点
     NSInteger colorShift = (NSInteger)floor(litPos);      // 颜色随电平往前滚
-
-    CGFloat bounceAmp = 0.0;
-    if (self.haloBounce) {
-        bounceAmp = CGRectGetHeight(content) * 0.10 * (0.25 + _haloSmoothEnergy);
-    }
 
     for (NSInteger pass = 2; pass >= 0; pass--) {
         CGFloat trail = (CGFloat)pass * 0.16;
@@ -466,48 +531,91 @@
                             - (CGFloat)_haloDir * trail;
             CGFloat level = MAX([self levelAtIndex:(i % kANVSrcBars)], 0.12f);
 
-            CGFloat litFactor = 0.0;
-            if ((CGFloat)i < litPos - 1.0) litFactor = 1.0;
-            else if ((CGFloat)i < litPos) litFactor = litPos - (CGFloat)i;
-            litFactor = MIN(MAX(litFactor, 0.0), 1.0);
+            CGFloat lit = 0.0;
+            if ((CGFloat)i < litPos - 1.0) lit = 1.0;
+            else if ((CGFloat)i < litPos) lit = litPos - (CGFloat)i;
+            lit = MIN(MAX(lit, 0.0), 1.0);
 
-            // 跳动：每个点亮起时向外弹一下
-            CGFloat bounce = bounceAmp * litFactor * sin(_phase * 6.0 + (CGFloat)i * 0.9);
-            CGFloat rx2 = rx + bounce;
-            CGFloat ry2 = ry + bounce * 0.7;
+            // 逐颗弹跳：这一颗刚被电平点亮时往外弹一下，然后很快收回
+            CGFloat kick = 0.0;
+            if (self.haloBounce) {
+                CGFloat age = (CGFloat)(nowD - _haloPulseAt[i]);
+                if (age > 0.0 && age < 0.8) {
+                    kick = _haloPulseAmp[i] * exp(-age * 5.5) * sin(MIN(age, 0.42) * 15.0);
+                }
+                if (pass > 0) kick *= 0.55;
+            }
+            CGFloat bounce = kick * h * 0.17;
 
-            CGFloat x = CGRectGetMidX(content) + cos(angle) * rx2;
-            CGFloat y = CGRectGetMidY(content) + sin(angle) * ry2;
+            // 波浪动作：每个点沿半径正弦错位，相位顺着时间跑
+            CGFloat wave = waveAmp * sin(_phase * 3.6 + (CGFloat)i * 0.75) * (pass == 0 ? 1.0 : 0.6);
 
-            CGFloat dot = (1.5 + 3.2 * level) * dotScale * baseScale * (0.55 + 0.45 * litFactor);
+            CGFloat rx2 = rx + bounce + wave;
+            CGFloat ry2 = ry + bounce * 0.8 + wave * 0.8;
+            CGFloat x = center.x + cos(angle) * rx2;
+            CGFloat y = center.y + sin(angle) * ry2 + cos(angle) * sway * ry2;
+
+            CGFloat dot = (1.5 + 3.2 * level) * dotScale * baseScale
+                          * (0.55 + 0.45 * lit) * (1.0 + 0.5 * fabs(kick));
 
             UIColor *color;
             if (self.haloRainbow) {
-                NSInteger ci = (i + colorShift) % 9;
-                if (ci < 0) ci += 9;
-                CGFloat hue = fmod(hues[ci] + (ci == 8 ? _phase * 0.05 : 0.0), 1.0);
-                color = [UIColor colorWithHue:hue saturation:sats[ci] brightness:1.0 alpha:1.0];
+                color = nineColor(i + colorShift, baseAlpha * (0.18 + 0.82 * lit));
             } else {
-                color = [self colorForBar:i];
+                color = [[self colorForBar:i] colorWithAlphaComponent:baseAlpha * (0.18 + 0.82 * lit)];
             }
-            color = [color colorWithAlphaComponent:baseAlpha * (0.18 + 0.82 * litFactor)];
 
-            CGContextSetShadowWithColor(ctx, CGSizeZero, 7.0 * (0.5 + level), color.CGColor);
+            CGContextSetShadowWithColor(ctx, CGSizeZero, 7.0 * (0.5 + level) * (1.0 + 0.6 * fabs(kick)), color.CGColor);
             CGContextSetFillColorWithColor(ctx, color.CGColor);
             CGContextFillEllipseInRect(ctx, CGRectMake(x - dot, y - dot, dot * 2.0, dot * 2.0));
         }
     }
 
-    // 中心小光球
-    CGFloat coreR = (2.0 + 4.0 * _haloSmoothEnergy) * dotScale;
-    UIColor *core = [UIColor colorWithHue:fmod(0.72 + _haloSmoothEnergy * 0.2, 1.0)
-                                saturation:0.85 brightness:1.0
-                                    alpha:0.25 + 0.65 * _haloSmoothEnergy];
-    CGContextSetShadowWithColor(ctx, CGSizeZero, 10.0, core.CGColor);
+    // 双环动作：里面再套一圈反向转的小点
+    if (mDouble) {
+        CGFloat rr = 0.62;
+        NSInteger m = 8;
+        for (NSInteger j = 0; j < m; j++) {
+            CGFloat a = -_haloAngle * 1.35 + (CGFloat)j / (CGFloat)m * 2.0 * (CGFloat)M_PI;
+            CGFloat lv = MAX([self levelAtIndex:(j % kANVSrcBars)], 0.15f);
+            CGFloat r2x = rx * rr;
+            CGFloat r2y = ry * rr;
+            CGFloat x = center.x + cos(a) * r2x;
+            CGFloat y = center.y + sin(a) * r2y + cos(a) * sway * r2y
+                        + sin(_phase * 1.6 + (CGFloat)j) * h * 0.02;
+            CGFloat dot = (1.2 + 2.0 * lv) * dotScale;
+            UIColor *c = nineColor(j * 3 + (NSInteger)floor(_phase * 2.0), 0.50 + 0.40 * lv);
+            CGContextSetShadowWithColor(ctx, CGSizeZero, 6.0 * lv, c.CGColor);
+            CGContextSetFillColorWithColor(ctx, c.CGColor);
+            CGContextFillEllipseInRect(ctx, CGRectMake(x - dot, y - dot, dot * 2.0, dot * 2.0));
+        }
+    }
+
+    // 中心圆点：九色循环的彩虹球，跟着电平变大变亮，强拍往上弹
+    CGFloat corePulse = self.haloBounce ? beat : 0.0;
+    CGFloat coreR = (2.2 + 4.2 * energy + 2.2 * corePulse) * dotScale;
+    CGFloat hop = self.haloBounce ? -h * 0.11 * corePulse : 0.0;
+    CGFloat coreX = center.x;
+    CGFloat coreY = center.y + hop;
+    NSInteger sci = (NSInteger)floor(_phase * 2.2) % 9;
+
+    UIColor *coreGlow = nineColor(sci, 0.16 + 0.26 * energy);
+    CGContextSetShadowWithColor(ctx, CGSizeZero, 12.0 + 8.0 * energy + 6.0 * corePulse, coreGlow.CGColor);
+    UIColor *core = nineColor(sci, 0.35 + 0.55 * energy);
     CGContextSetFillColorWithColor(ctx, core.CGColor);
-    CGContextFillEllipseInRect(ctx, CGRectMake(CGRectGetMidX(content) - coreR,
-                                               CGRectGetMidY(content) - coreR,
-                                               coreR * 2.0, coreR * 2.0));
+    CGContextFillEllipseInRect(ctx, CGRectMake(coreX - coreR, coreY - coreR, coreR * 2.0, coreR * 2.0));
+
+    // 彩虹外圈 + 高光内芯，让中心点真的是九色而不是一颗蓝球
+    UIColor *ringColor = nineColor(sci + 2, 0.22 + 0.45 * energy);
+    CGContextSetStrokeColorWithColor(ctx, ringColor.CGColor);
+    CGContextSetLineWidth(ctx, MAX(0.8, 1.2 * dotScale));
+    CGFloat ringR = coreR * 1.55;
+    CGContextStrokeEllipseInRect(ctx, CGRectMake(coreX - ringR, coreY - ringR, ringR * 2.0, ringR * 2.0));
+
+    CGFloat hotR = MAX(0.8, coreR * 0.40);
+    [[UIColor colorWithWhite:1.0 alpha:0.35 + 0.45 * energy] setFill];
+    CGContextFillEllipseInRect(ctx, CGRectMake(coreX - hotR, coreY - hotR, hotR * 2.0, hotR * 2.0));
+
     CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
 }
 

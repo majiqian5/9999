@@ -27,6 +27,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, strong) UIVisualEffectView *blurView;
 @property (nonatomic, copy) NSString *infoLineText;
 @property (nonatomic, strong) UIView *dragHandle;
+@property (nonatomic, strong) UIView *panelDismissView;
 @property (nonatomic, assign) BOOL barHidden;
 @property (nonatomic, strong) UIView *restoreDot;
 @property (nonatomic, assign) BOOL handleArmed;
@@ -400,11 +401,13 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"光环点 %ld%% · 减", (long)lround(st.haloDotScale * 100)],
         [NSString stringWithFormat:@"光环九色 · %@", st.haloRainbow ? @"开" : @"关"],
         [NSString stringWithFormat:@"光环跳动 · %@", st.haloBounce ? @"开" : @"关"],
+        [NSString stringWithFormat:@"光环动作 · %@", [self haloMotionTitle]],
         [NSString stringWithFormat:@"键背景 · %@", [self keyBgTitle]],
         [NSString stringWithFormat:@"气泡自适应歌词 · %@", st.bubbleAutoFit ? @"开" : @"关"],
         [NSString stringWithFormat:@"隐藏拉手 · %@", st.handleEnabled ? @"开" : @"关"],
         [NSString stringWithFormat:@"拉手灵敏度 %ld%% · 加", (long)lround(st.handleSensitivity * 100)],
         [NSString stringWithFormat:@"拉手灵敏度 %ld%% · 减", (long)lround(st.handleSensitivity * 100)],
+        [NSString stringWithFormat:@"拉手贴边隐藏 · %@", st.handleEdgeHide ? @"开" : @"关"],
         [NSString stringWithFormat:@"一键隐藏导航条 · %@", self.barHidden ? @"点此显示" : @"点此收起"],
         [NSString stringWithFormat:@"后台卡片 · %@", ([ANVSettings shared].recentsStyle == 1 ? @"叠卡" : @"原生")],
         [NSString stringWithFormat:@"麦克风频谱 · %@", st.micSpectrum ? @"开" : @"关"],
@@ -418,7 +421,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                       @200, @201, @202, @203, @204, @205, @206, @207,
                       @210, @211, @212, @213, @217, @220, @221, @218, @219, @214, @215, @216,
                       @222, @223, @224, @225, @226, @227, @228, @229, @230, @231,
-                      @232, @233, @234, @235, @236, @237, @238, @239, @240, @241, @242,
+                      @232, @233, @234, @235, @243, @236, @237, @238, @239, @240, @244, @241, @242,
                       @10, @11, @13, @14, @15];
 
     if (titles.count > 18) rowH = 30.0;
@@ -502,6 +505,18 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     [panel addSubview:dirRow];
 
     self.panelView = panel;
+
+    // 点空白收起：先铺一层全屏透明接收层，面板压在它上面，点面板外的任意空白都关
+    UIView *catcher = [[UIView alloc] initWithFrame:[UIScreen mainScreen].bounds];
+    catcher.backgroundColor = [UIColor clearColor];
+    catcher.userInteractionEnabled = YES;
+    UITapGestureRecognizer *tapOut = [[UITapGestureRecognizer alloc]
+        initWithTarget:self action:@selector(panelBlankTapped:)];
+    tapOut.numberOfTapsRequired = 1;
+    [catcher addGestureRecognizer:tapOut];
+    [self.window.rootViewController.view addSubview:catcher];
+    self.panelDismissView = catcher;
+
     // 面板放到全屏容器上，否则超出 bar 边界就收不到点击
     [self.window.rootViewController.view addSubview:panel];
     CGRect barFrame = self.barView.frame;
@@ -531,8 +546,27 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 }
 
 - (void)hidePanel {
+    [self.panelDismissView removeFromSuperview];
+    self.panelDismissView = nil;
     [self.panelView removeFromSuperview];
     self.panelView = nil;
+}
+
+/// 点在设置列表外面的空白处 = 收起列表
+- (void)panelBlankTapped:(UITapGestureRecognizer *)tap {
+    [self hidePanel];
+}
+
+/// 光环动作名字
+- (NSString *)haloMotionTitle {
+    switch ([ANVSettings shared].haloMotion) {
+        case 0: return @"呼吸";
+        case 1: return @"摇摆";
+        case 2: return @"浮动";
+        case 3: return @"波浪";
+        case 4: return @"双环";
+        default: return @"全开";
+    }
 }
 
 - (NSString *)petActionTitle {
@@ -562,6 +596,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         self.spectrumView.haloDotScale = st.haloDotScale;
         self.spectrumView.haloRainbow = st.haloRainbow;
         self.spectrumView.haloBounce = st.haloBounce;
+        self.spectrumView.haloMotion = st.haloMotion;
         [self.spectrumView setNeedsDisplay];
     }
 }
@@ -711,6 +746,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         self.spectrumView.haloDotScale = settings.haloDotScale;
         self.spectrumView.haloRainbow = settings.haloRainbow;
         self.spectrumView.haloBounce = settings.haloBounce;
+        self.spectrumView.haloMotion = settings.haloMotion;
         self.spectrumView.barCount = settings.spectrumBars;
         self.spectrumView.widthRatio = settings.spectrumWidth;
         self.spectrumView.heightRatio = settings.spectrumHeight;
@@ -741,8 +777,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 229: [settings saveBubbleH:settings.bubbleH - 2]; [self applyBubbleSettings]; break;
         case 230: [settings saveBubbleAlpha:settings.bubbleAlpha + 0.1]; [self applyBubbleSettings]; break;
         case 231: [settings saveBubbleAlpha:settings.bubbleAlpha - 0.1]; [self applyBubbleSettings]; break;
-        case 232: [settings saveHaloDotScale:settings.haloDotScale + 0.1]; [self applyHaloSettings]; break;
-        case 233: [settings saveHaloDotScale:settings.haloDotScale - 0.1]; [self applyHaloSettings]; break;
+        case 232: [settings saveHaloDotScale:settings.haloDotScale + 0.1]; [self applyHaloSettings]; [self refreshPanel]; break;
+        case 233: [settings saveHaloDotScale:settings.haloDotScale - 0.1]; [self applyHaloSettings]; [self refreshPanel]; break;
         case 234: [settings saveHaloRainbow:!settings.haloRainbow]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
         case 242: [settings saveRecentsStyle:([ANVSettings shared].recentsStyle == 1 ? 0 : 1)];
                   [self hidePanel]; [self showPanel]; break;
@@ -753,6 +789,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 237: [settings saveBubbleAutoFit:!settings.bubbleAutoFit]; [self applyBubbleSettings]; break;
         case 236: [settings saveKeyBackgroundMode:(settings.keyBackgroundMode + 1) % 3]; [self rebuildBar]; [self hidePanel]; [self showPanel]; break;
         case 235: [settings saveHaloBounce:!settings.haloBounce]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
+        case 243: [settings saveHaloMotion:(settings.haloMotion + 1) % 6]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
+        case 244: [settings saveHandleEdgeHide:!settings.handleEdgeHide]; [self updateFrame]; [self hidePanel]; [self showPanel]; break;
         case 221: [settings savePetSide:(settings.petSide + 1) % 3]; [self layoutWidgets]; [self hidePanel]; [self showPanel]; break;
         case 220: [settings savePetCount:(settings.petCount % 5) + 1]; [self applyPetCount]; [self hidePanel]; [self showPanel]; break;
         case 218: [settings savePetAction:(settings.petAction + 1) % 22]; [self applyPetAction]; [self hidePanel]; [self showPanel]; break;
@@ -1516,10 +1554,35 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     BOOL vertical = ([ANVSettings shared].barOrientation != 0);
     CGRect f;
     if (vertical) {
-        f = CGRectMake(CGRectGetMinX(bar) - thick, CGRectGetMinY(bar), thick, CGRectGetHeight(bar));
+        if ([ANVSettings shared].barOrientation == 2) {
+            f = CGRectMake(CGRectGetMaxX(bar), CGRectGetMinY(bar), thick, CGRectGetHeight(bar));
+        } else {
+            f = CGRectMake(CGRectGetMinX(bar) - thick, CGRectGetMinY(bar), thick, CGRectGetHeight(bar));
+        }
     } else {
         f = CGRectMake(CGRectGetMinX(bar), CGRectGetMinY(bar) - thick, CGRectGetWidth(bar), thick);
     }
+
+    // 贴边隐藏：条已经贴着屏幕边（或拉手本身要伸出屏幕）时，拉手直接收起来，
+    // 免得挡住边缘的返回手势 / 被屏幕裁掉一半。离开边缘它自己会回来。
+    if (st.handleEdgeHide) {
+        CGRect screen = [UIScreen mainScreen].bounds;
+        CGFloat slack = 2.0;
+        BOOL edge = (CGRectGetMinX(bar) <= slack ||
+                     CGRectGetMaxX(bar) >= screen.size.width - slack ||
+                     CGRectGetMinY(bar) <= slack ||
+                     CGRectGetMaxY(bar) >= screen.size.height - slack ||
+                     CGRectGetMinX(f) < -slack ||
+                     CGRectGetMaxX(f) > screen.size.width + slack ||
+                     CGRectGetMinY(f) < -slack ||
+                     CGRectGetMaxY(f) > screen.size.height + slack);
+        if (edge) {
+            self.dragHandle.hidden = YES;
+            self.dragHandle.frame = CGRectZero;
+            return;
+        }
+    }
+    self.dragHandle.hidden = NO;
     self.dragHandle.frame = f;
 }
 

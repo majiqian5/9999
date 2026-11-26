@@ -60,6 +60,8 @@ static void ANVSetPref(NSString *key, id value) {
 @property (nonatomic, assign) CGFloat haloDotScale;
 @property (nonatomic, assign) BOOL haloRainbow;
 @property (nonatomic, assign) BOOL haloBounce;
+@property (nonatomic, assign) NSInteger haloMotion;
+@property (nonatomic, assign) BOOL handleEdgeHide;
 @property (nonatomic, assign) BOOL bubbleAutoFit;
 @property (nonatomic, assign) CGFloat spectrumWidth;
 @property (nonatomic, assign) CGFloat spectrumHeight;
@@ -197,6 +199,11 @@ static void ANVSetPref(NSString *key, id value) {
     self.haloRainbow = hrw ? [hrw boolValue] : YES;
     id hbt = ANVCopyPref(@"HaloBounce");
     self.haloBounce = hbt ? [hbt boolValue] : YES;
+    id hml = ANVCopyPref(@"HaloMotion");
+    self.haloMotion = hml ? [hml integerValue] : 0;
+    self.haloMotion = MIN(MAX(self.haloMotion, 0), 5);
+    id heh = ANVCopyPref(@"HandleEdgeHide");
+    self.handleEdgeHide = heh ? [heh boolValue] : YES;
     // 夹取脏值：旧版本没写入过这些键时会读成 0
     self.bubbleDX = MIN(MAX(self.bubbleDX, -160.0), 160.0);
     self.bubbleDY = MIN(MAX(self.bubbleDY, -80.0), 80.0);
@@ -327,6 +334,11 @@ static void ANVSetPref(NSString *key, id value) {
 - (void)saveHaloDotScale:(CGFloat)v { self.haloDotScale = MIN(MAX(v, 0.6), 2.0); ANVSetPref(@"HaloDotScale", @(self.haloDotScale)); }
 - (void)saveHaloRainbow:(BOOL)v { self.haloRainbow = v; ANVSetPref(@"HaloRainbow", @(v)); }
 - (void)saveHaloBounce:(BOOL)v { self.haloBounce = v; ANVSetPref(@"HaloBounce", @(v)); }
+- (void)saveHaloMotion:(NSInteger)v {
+    self.haloMotion = MIN(MAX(v, 0), 5);
+    ANVSetPref(@"HaloMotion", @(self.haloMotion));
+}
+- (void)saveHandleEdgeHide:(BOOL)v { self.handleEdgeHide = v; ANVSetPref(@"HandleEdgeHide", @(v)); }
 
 - (void)saveLyricScale:(CGFloat)v {
     self.lyricScale = MIN(MAX(v, 0.6), 1.6);
