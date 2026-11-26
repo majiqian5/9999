@@ -125,9 +125,13 @@ static NSArray<NSString *> *ANVSwitcherBundleIDs(void) {
         [ids insertObject:front atIndex:0];
     }
 
-    // 4) 自己记的开 App 历史
+    // 4) 自己记的开 App 历史（用运行时取，避免老版本 ANVActions.h 没声明这个方法）
     @try {
-        for (NSString *bid in [ANVActions historyBundleIDs]) ANVAppendUnique(ids, bid);
+        Class actionsClass = [ANVActions class];
+        if ([actionsClass respondsToSelector:@selector(historyBundleIDs)]) {
+            NSArray *history = [actionsClass performSelector:@selector(historyBundleIDs)];
+            for (NSString *bid in history) ANVAppendUnique(ids, bid);
+        }
     } @catch (__unused NSException *e) {}
 
     // 5) 有截图的 App（系统后台一定会给它们截图）
