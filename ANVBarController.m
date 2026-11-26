@@ -412,6 +412,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"一键隐藏导航条 · %@", self.barHidden ? @"点此显示" : @"点此收起"],
         [NSString stringWithFormat:@"麦克风频谱 · %@", st.micSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"模拟频谱 · %@", st.simulateSpectrum ? @"开" : @"关"],
+        [NSString stringWithFormat:@"%@ · 电平 %ld%%", [[ANVMusicMonitor shared] sourceLabel],
+                                   (long)lround([[ANVMusicMonitor shared] currentEnergy] * 100)],
         [NSString stringWithFormat:@"位置 · %@", st.positionLocked ? @"已锁定" : @"可拖动"],
         @"位置复位",
         @"关闭",
@@ -422,7 +424,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                       @210, @211, @212, @213, @217, @220, @221, @218, @219, @214, @215, @216,
                       @222, @223, @224, @225, @226, @227, @228, @229, @230, @231,
                       @232, @233, @234, @235, @243, @236, @237, @250, @251, @241,
-                      @10, @11, @13, @14, @15];
+                      @10, @11, @253, @13, @14, @15];
 
     if (titles.count > 18) rowH = 30.0;
 
@@ -867,6 +869,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 205: [settings saveSpectrumBars:settings.spectrumBars - 1]; [self applySpectrumSettings]; [self refreshPanel]; break;
         case 206: [settings saveSpectrumThickness:settings.spectrumThickness + 0.06]; [self applySpectrumSettings]; [self refreshPanel]; break;
         case 207: [settings saveSpectrumThickness:settings.spectrumThickness - 0.06]; [self applySpectrumSettings]; [self refreshPanel]; break;
+        case 253: [self refreshPanel]; break;
         case 10: {
             [settings saveMicSpectrum:!settings.micSpectrum];
             [ANVMusicMonitor shared].micEnabled = settings.micSpectrum;
@@ -1197,7 +1200,23 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             [ANVActions note:@"spectrum: AxsEQ 无数据，只有自带动画在动"];
         }
     }
-    [self.spectrumView advancePhase:delta];
+    // 静音判定：真没音乐、也没开模拟、电平整条接近 0，且已经持续一会儿
+    // → 频谱相位完全冻住（不然跑马灯/呼吸这些靠相位跑样式的会一直在动）
+    CGFloat sumLv = 0.0;
+    for (NSUInteger i = 0; i < 10; i++) sumLv += levels[i];
+    BOOL playing = [ANVMusicMonitor shared].isPlaying;
+    static CFTimeInterval quietSince = 0;
+    BOOL simOn = [ANVSettings shared].simulateSpectrum;
+    BOOL quietNow = (!playing && !simOn && sumLv < 0.02);
+    CFTimeInterval nowQ = CACurrentMediaTime();
+    if (quietNow) { if (quietSince <= 0) quietSince = nowQ; } else quietSince = 0;
+    BOOL frozen = (quietSince > 0 && nowQ - quietSince > 1.2);
+    if (frozen) {
+        for (NSUInteger i = 0; i < 10; i++) levels[i] = 0.0f;
+        [self.spectrumView updateLevels:levels count:10];
+        [self.spectrumView settleSilence];
+    }
+    [self.spectrumView advancePhase:frozen ? 0.0 : delta];
 
     if (self.petView) {
         _lastLevel = levels[0];
@@ -1529,21 +1548,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     self.barView.alpha = [self nightAdjustedOpacity];
 }
 
-/// 双击导航条：正在放音乐就切「播放 / 暂停」，没有音乐时还是原来的「收起 / 显示」
+/// 双击导航条：收起 / 显示整条（音乐控制已经去掉，不再抢双击）
 - (void)handleBarDoubleTap:(UITapGestureRecognizer *)tap {
-    ANVMusicMonitor *music = [ANVMusicMonitor shared];
-    BOOL recentlyAudible = (CACurrentMediaTime() - self.lastAudioAt) < 30.0;
-    if (music.isPlaying || recentlyAudible) {
-        BOOL ok = music.isPlaying ? [ANVActions mediaPause] : [ANVActions mediaPlay];
-        if (ok) {
-            if ([ANVSettings shared].haptics) {
-                UIImpactFeedbackGenerator *g = [[UIImpactFeedbackGenerator alloc]
-                    initWithStyle:UIImpactFeedbackStyleLight];
-                [g impactOccurred];
-            }
-            return;
-        }
-    }
     [self setBarHidden:!self.barHidden];
 }
 

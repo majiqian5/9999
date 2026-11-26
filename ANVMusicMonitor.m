@@ -36,6 +36,8 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
     BOOL _tapInstalled;
     FFTSetup _fftSetup;
     float *_window;
+    CFTimeInterval _lastChangeAt;   // 电平最后一次明显变化的时间（用来识别"卡住不动"的假数据）
+    CGFloat _lastEnergy;
     float _axsPeak;      // 自适应量程的峰值（AxsEQ 数值不落在 range.txt 里时用）
     int _axsScaleMode;   // 0 已归一化 1 按 range.txt 2 自适应
 }
@@ -483,6 +485,15 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
         _axsLevels[i] = target > old ? target : old * 0.86f + target * 0.14f;
     }
 
+    // 电平一直不动 = 数据源卡住了（音乐停了但 mediaserverd 还在写同一个值，或者写死了）
+    CGFloat energyNow = 0.0;
+    for (NSUInteger i = 0; i < kANVBandCount; i++) energyNow += _axsLevels[i];
+    energyNow /= (CGFloat)kANVBandCount;
+    if (fabs(energyNow - _lastEnergy) > 0.01) {
+        _lastEnergy = energyNow;
+        _lastChangeAt = [NSDate date].timeIntervalSince1970;
+    }
+
     if (++traceTicks % 40 == 0) {
         [ANVActions note:[NSString stringWithFormat:
             @"axs trace mode=%d peak=%.1f b0=%.2f b4=%.2f b9=%.2f fresh=%d",
@@ -526,12 +537,37 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
     self.playing = NO;
 }
 
+- (NSString *)sourceLabel {
+    NSTimeInterval nowL = [NSDate date].timeIntervalSince1970;
+    if (self.axsAvailable) {
+        if (_lastChangeAt <= 0 || nowL - _lastChangeAt > 1.5) return @"AxsEQ 卡住";
+        return @"AxsEQ 真电平";
+    }
+    if (self.micAvailable && self.micEnabled) return @"麦克风";
+    if (self.simulateEnabled) return @"模拟动画";
+    return @"无信号";
+}
+
+- (CGFloat)currentEnergy {
+    CGFloat sum = 0.0;
+    for (NSUInteger i = 0; i < kANVBandCount; i++) sum += _axsLevels[i];
+    return sum / (CGFloat)kANVBandCount;
+}
+
 - (void)fillLevels:(float *)levels count:(NSUInteger)count {
     if (!levels) return;
     NSUInteger n = MIN(count, (NSUInteger)kANVBandCount);
 
     // 优先用 AxsEQ 的真实电平（文件新鲜度已代表"正在播放"），没有它才退回麦克风 FFT
     if (self.axsAvailable) {
+        // 电平 1.5 秒没有任何变化 → 判定为数据源卡死（不是真电平），直接给 0，
+        // 否则音乐一停、文件还在原地循环写同一个值，光环就会一直转个不停
+        NSTimeInterval nowL = [NSDate date].timeIntervalSince1970;
+        BOOL stuck = (_lastChangeAt <= 0 || nowL - _lastChangeAt > 1.5);
+        if (stuck) {
+            for (NSUInteger i = 0; i < count; i++) levels[i] = 0.0f;
+            return;
+        }
         for (NSUInteger i = 0; i < count; i++) {
             levels[i] = (i < kANVBandCount) ? _axsLevels[i] : 0.0f;
         }

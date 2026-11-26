@@ -58,5 +58,7 @@ typedef NS_ENUM(NSInteger, ANVSpectrumStyle) {
 @property (nonatomic, copy) void (^onBeat)(CGFloat energy);
 
 - (void)advancePhase:(CGFloat)delta;
+/// 静音：把光环能量/转速收干净（音乐停时不调用 advancePhase，改调它让画面落下去）
+- (void)settleSilence;
 - (void)updateLevels:(const float *)levels count:(NSUInteger)count;
 @end

@@ -715,6 +715,17 @@
     CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);
 }
 
+/// 静音收敛：能量、弹跳包络、转速一起往 0 收，画面落回一圈暗点
+- (void)settleSilence {
+    _haloSmoothEnergy *= 0.82;
+    _haloLastEnergy = _haloSmoothEnergy;
+    _haloBeatPulse *= 0.8;
+    _haloSpeed *= 0.75;
+    if (_haloSpeed < 0.03) _haloSpeed = 0.0;
+    if (_haloSmoothEnergy < 0.01) _haloSmoothEnergy = 0.0;
+    [self setNeedsDisplay];
+}
+
 /// 随机闪烁：每根柱子按自己的节奏亮灭
 - (void)drawStrobeInContext:(CGContextRef)ctx rect:(CGRect)rect {
     CGFloat startX = 0, barWidth = 0, gap = 0, contentH = 0;
