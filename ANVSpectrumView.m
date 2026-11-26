@@ -709,7 +709,7 @@
     CGContextStrokeEllipseInRect(ctx, CGRectMake(coreX - ringR, coreY - ringR, ringR * 2.0, ringR * 2.0));
 
     CGFloat hotR = MAX(0.8, coreR * 0.40);
-    [[UIColor colorWithWhite:1.0 alpha:0.35 + 0.45 * energy] setFill];
+    CGContextSetFillColorWithColor(ctx, [UIColor colorWithWhite:1.0 alpha:0.35 + 0.45 * energy].CGColor);
     CGContextFillEllipseInRect(ctx, CGRectMake(coreX - hotR, coreY - hotR, hotR * 2.0, hotR * 2.0));
 
     CGContextSetShadowWithColor(ctx, CGSizeZero, 0, NULL);

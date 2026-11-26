@@ -25,7 +25,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, strong) UIView *barView;
 @property (nonatomic, strong) UIVisualEffectView *blurView;
 @property (nonatomic, copy) NSString *infoLineText;
-@property (nonatomic, strong) UIView *blankCatcher;      // 面板打开时铺满窗口的透明接收层
+@property (nonatomic, strong) UIWindow *panelWindow;     // 面板专用窗口（独立层级，任何 App 上面都能点空白关闭）
 @property (nonatomic, assign) CFTimeInterval lastBeatHaptic;
 @property (nonatomic, assign) CFTimeInterval lastAudioAt;
 @property (nonatomic, strong) UIScrollView *panelScroll;
@@ -509,25 +509,19 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 
     self.panelView = panel;
 
-    // 点空白收起：在窗口最上层铺一层透明接收层，面板放在它上面。
-    // 触摸从最上层往下命中，点面板外就一定落在接收层上，一定关得掉。
-    UIWindow *win = self.window;
-    if (!self.blankCatcher) {
-        UIView *catcher = [[UIView alloc] initWithFrame:win.bounds];
-        catcher.backgroundColor = [UIColor clearColor];
-        catcher.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        UITapGestureRecognizer *tapOut = [[UITapGestureRecognizer alloc]
-            initWithTarget:self action:@selector(panelBlankTapped:)];
-        tapOut.numberOfTapsRequired = 1;
-        tapOut.cancelsTouchesInView = NO;
-        [catcher addGestureRecognizer:tapOut];
-        self.blankCatcher = catcher;
+    // 点空白收起：面板放进一个独立的高层级窗口，里面是一层铺满屏幕的接收视图。
+    // 用独立窗口而不是挂在导航条那个窗口上，因为 App 里那个窗口会被 App 自己的
+    // 窗口盖住/抢走触摸，之前只有在桌面空白处点才关得掉。
+    UIWindow *host = [self panelHostWindow];
+    if (@available(iOS 13.0, *)) {
+        UIWindowScene *scene = [self activePanelScene];
+        if (scene) host.windowScene = scene;
     }
-    self.blankCatcher.frame = win.bounds;
-    [win addSubview:self.blankCatcher];
-
-    // 面板放到接收层上，否则超出 bar 边界就收不到点击
-    [self.blankCatcher addSubview:panel];
+    host.frame = [UIScreen mainScreen].bounds;
+    host.hidden = NO;
+    UIView *hostRoot = host.rootViewController.view;
+    hostRoot.frame = host.bounds;
+    [hostRoot addSubview:panel];
     CGRect barFrame = self.barView.frame;
     CGFloat top = CGRectGetMinY(barFrame) - CGRectGetHeight(panel.bounds) - 8.0;
     if (top < 60.0) top = 60.0;                       // 不许顶出状态栏
@@ -563,16 +557,57 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     [self.panelView removeFromSuperview];
     self.panelView = nil;
     self.panelScroll = nil;
-    [self.blankCatcher removeFromSuperview];
-    self.blankCatcher = nil;
+    [self.panelWindow setHidden:YES];
 }
 
 /// 点在设置列表外面的空白处 = 收起列表
 - (void)panelBlankTapped:(UITapGestureRecognizer *)tap {
     if (!self.panelView) return;
-    CGPoint point = [tap locationInView:self.blankCatcher];
+    CGPoint point = [tap locationInView:self.panelWindow.rootViewController.view];
     if (CGRectContainsPoint(self.panelView.frame, point)) return;
     [self hidePanel];
+}
+
+/// 面板专用窗口：层级比系统弹窗再高一点，任何 App 上面都在最顶
+- (UIWindow *)panelHostWindow {
+    if (!self.panelWindow) {
+        UIWindow *w = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+        w.windowLevel = UIWindowLevelAlert + 60.0;
+        w.backgroundColor = [UIColor clearColor];
+        w.opaque = NO;
+
+        UIViewController *vc = [[UIViewController alloc] init];
+        UIView *root = [[UIView alloc] initWithFrame:w.bounds];
+        root.backgroundColor = [UIColor clearColor];
+        root.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+
+        UITapGestureRecognizer *tapOut = [[UITapGestureRecognizer alloc]
+            initWithTarget:self action:@selector(panelBlankTapped:)];
+        tapOut.numberOfTapsRequired = 1;
+        tapOut.cancelsTouchesInView = NO;
+        [root addGestureRecognizer:tapOut];
+
+        vc.view = root;
+        w.rootViewController = vc;
+        self.panelWindow = w;
+    }
+    return self.panelWindow;
+}
+
+/// 当前前台场景（App 里也能拿到正确 scene，面板窗口才显示得出来）
+- (UIWindowScene *)activePanelScene {
+    if (@available(iOS 13.0, *)) {
+        UIWindowScene *fallback = nil;
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            UIWindowScene *ws = (UIWindowScene *)scene;
+            if (ws.activationState == UISceneActivationStateForegroundActive) return ws;
+            if (!fallback) fallback = ws;
+        }
+        if (fallback) return fallback;
+        return self.window.windowScene;
+    }
+    return nil;
 }
 
 /// 夜间（22:00–07:00）自动把条调暗一档，白天恢复原透明度
@@ -842,7 +877,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 232: [settings saveHaloDotScale:settings.haloDotScale + 0.1]; [self applyHaloSettings]; [self refreshPanel]; break;
         case 233: [settings saveHaloDotScale:settings.haloDotScale - 0.1]; [self applyHaloSettings]; [self refreshPanel]; break;
         case 234: [settings saveHaloRainbow:!settings.haloRainbow]; [self applyHaloSettings]; [self refreshPanel]; break;
-        case 241: [self setBarHidden:!self.barHidden]; [self refreshPanel]; break;
+        case 241: [self setBarHidden:!self.barHidden]; break;   // 收起条时列表就该跟着关掉，别再弹回来
         case 250: [settings saveBeatHaptics:(settings.beatHaptics + 1) % 4]; [self refreshPanel]; break;
         case 251: [settings saveNightDim:!settings.nightDim]; [self updateFrame]; [self refreshPanel]; break;
         case 237: [settings saveBubbleAutoFit:!settings.bubbleAutoFit]; [self applyBubbleSettings]; break;
@@ -935,6 +970,9 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     self.lockTimer = nil;
     [self.pullTab removeFromSuperview];
     self.pullTab = nil;
+    [self hidePanel];
+    self.panelWindow.hidden = YES;
+    self.panelWindow = nil;
     self.window.hidden = YES;
     self.window = nil;
     self.barView = nil;
@@ -957,7 +995,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     UIViewController *controller = [[UIViewController alloc] init];
     controller.view = root;
     self.window.rootViewController = controller;
-    self.blankCatcher = nil;
+    self.panelWindow = nil;
 
     if (@available(iOS 13.0, *)) {
         for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
