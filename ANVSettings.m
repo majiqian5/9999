@@ -213,7 +213,7 @@ static void ANVSetPref(NSString *key, id value) {
     self.haloBounce = hbt ? [hbt boolValue] : YES;
     id hml = ANVCopyPref(@"HaloMotion");
     self.haloMotion = hml ? [hml integerValue] : 0;
-    self.haloMotion = MIN(MAX(self.haloMotion, 0), 8);
+    self.haloMotion = MIN(MAX(self.haloMotion, 0), 18);
     id bhap = ANVCopyPref(@"BeatHaptics");
     self.beatHaptics = bhap ? [bhap integerValue] : 0;
     self.beatHaptics = MIN(MAX(self.beatHaptics, 0), 3);
@@ -360,7 +360,7 @@ static void ANVSetPref(NSString *key, id value) {
 }
 
 - (void)saveHaloMotion:(NSInteger)v {
-    self.haloMotion = MIN(MAX(v, 0), 8);
+    self.haloMotion = MIN(MAX(v, 0), 18);
     ANVSetPref(@"HaloMotion", @(self.haloMotion));
 }
 

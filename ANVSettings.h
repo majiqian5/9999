@@ -56,6 +56,7 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 @property (nonatomic, readonly) BOOL haloRainbow;       // 九色彩虹
 @property (nonatomic, readonly) BOOL haloBounce;        // 逐颗弹跳
 /// 光环旋律动作：0 呼吸 / 1 摇摆 / 2 浮动 / 3 波浪 / 4 双环 / 5 全开 / 6 螺旋 / 7 爆闪 / 8 雨刷
+/// 9 泵动 / 10 冲击波 / 11 彗尾 / 12 对撞 / 13 八字 / 14 跑马 / 15 坠珠 / 16 沙漏 / 17 花瓣 / 18 涟漪
 @property (nonatomic, readonly) NSInteger haloMotion;
 /// 节拍触感：0 关 / 1 轻 / 2 中 / 3 强（音乐强拍时轻震一下）
 @property (nonatomic, readonly) NSInteger beatHaptics;

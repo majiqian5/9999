@@ -51,6 +51,7 @@ typedef NS_ENUM(NSInteger, ANVSpectrumStyle) {
 @property (nonatomic, assign) BOOL haloRainbow;
 @property (nonatomic, assign) BOOL haloBounce;
 /// 光环旋律动作：0 呼吸 / 1 摇摆 / 2 浮动 / 3 波浪 / 4 双环 / 5 全开 / 6 螺旋 / 7 爆闪 / 8 雨刷
+/// 9 泵动 / 10 冲击波 / 11 彗尾 / 12 对撞 / 13 八字 / 14 跑马 / 15 坠珠 / 16 沙漏 / 17 花瓣 / 18 涟漪
 @property (nonatomic, assign) NSInteger haloMotion;
 
 /// 强拍回调：检测到一次"咚"就回调一次（主线程），外面拿它做触感反馈

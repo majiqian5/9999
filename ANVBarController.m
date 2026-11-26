@@ -617,7 +617,17 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 5: return @"全开";
         case 6: return @"螺旋";
         case 7: return @"爆闪";
-        default: return @"雨刷";
+        case 8: return @"雨刷";
+        case 9: return @"泵动";
+        case 10: return @"冲击波";
+        case 11: return @"彗尾";
+        case 12: return @"对撞";
+        case 13: return @"八字";
+        case 14: return @"跑马";
+        case 15: return @"坠珠";
+        case 16: return @"沙漏";
+        case 17: return @"花瓣";
+        default: return @"涟漪";
     }
 }
 
@@ -836,7 +846,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 237: [settings saveBubbleAutoFit:!settings.bubbleAutoFit]; [self applyBubbleSettings]; break;
         case 236: [settings saveKeyBackgroundMode:(settings.keyBackgroundMode + 1) % 3]; [self rebuildBar]; [self refreshPanel]; break;
         case 235: [settings saveHaloBounce:!settings.haloBounce]; [self applyHaloSettings]; [self refreshPanel]; break;
-        case 243: [settings saveHaloMotion:(settings.haloMotion + 1) % 9]; [self applyHaloSettings]; [self refreshPanel]; break;
+        case 243: [settings saveHaloMotion:(settings.haloMotion + 1) % 19]; [self applyHaloSettings]; [self refreshPanel]; break;
         case 221: [settings savePetSide:(settings.petSide + 1) % 3]; [self layoutWidgets]; [self refreshPanel]; break;
         case 220: [settings savePetCount:(settings.petCount % 5) + 1]; [self applyPetCount]; [self refreshPanel]; break;
         case 218: [settings savePetAction:(settings.petAction + 1) % 22]; [self applyPetAction]; [self refreshPanel]; break;
@@ -1054,6 +1064,10 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
             __strong typeof(weakSelf) strongSelf = weakSelf;
             if (strongSelf) [strongSelf handleBeat:energy];
         };
+        self.spectrumView.haloDotScale = settings.haloDotScale;
+        self.spectrumView.haloRainbow = settings.haloRainbow;
+        self.spectrumView.haloBounce = settings.haloBounce;
+        self.spectrumView.haloMotion = settings.haloMotion;
         self.spectrumView.style = (ANVSpectrumStyle)settings.spectrumStyle;
         self.spectrumView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     }
