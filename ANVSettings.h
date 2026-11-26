@@ -68,6 +68,8 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 @property (nonatomic, readonly) BOOL simulateSpectrum;    // 模拟频谱（数据源坏时的占位动画）
 /// 后台键：0 iOS 原生多任务 / 1 卡片叠卡后台
 @property (nonatomic, readonly) NSInteger recentsStyle;
+/// 卡片后台整体上下位置（点，-160~160）
+@property (nonatomic, readonly) CGFloat recentsOffsetY;
 
 - (void)reload;
 - (void)saveCenter:(CGPoint)normalizedPoint;
@@ -111,5 +113,6 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 - (void)saveMicSpectrum:(BOOL)enabled;
 - (void)saveSimulateSpectrum:(BOOL)enabled;
 - (void)saveRecentsStyle:(NSInteger)v;
+- (void)saveRecentsOffsetY:(CGFloat)v;
 - (void)saveAction:(ANVKeyAction)action forSlot:(NSInteger)slot;
 @end
