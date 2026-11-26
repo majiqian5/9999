@@ -1,4 +1,5 @@
 #import "ANVActions.h"
+#import "ANVHistory.h"
 #import <dlfcn.h>
 #import "ANVHistory.h"
 #import <objc/runtime.h>
@@ -443,21 +444,35 @@ typedef void (*MRMediaRemoteSendCommandFunc)(int command, id userInfo);
     if (!recents) { ANVLog(@"recents: sharedInstance 为 nil"); return @[]; }
 
     NSArray *layouts = nil;
-    SEL incl = NSSelectorFromString(@"recentsIncludingHiddenAppLayouts:");
-    if ([recents respondsToSelector:incl]) {
+    // 不同系统上名字不一样，按可能性从高到低逐个试
+    for (NSString *name in @[@"recentsIncludingHiddenAppLayouts:",
+                             @"recentAppLayouts",
+                             @"recents",
+                             @"_recents"]) {
+        SEL sel = NSSelectorFromString(name);
+        if (![recents respondsToSelector:sel]) continue;
         @try {
-            NSMethodSignature *sig = [recents methodSignatureForSelector:incl];
-            NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
-            inv.target = recents;
-            inv.selector = incl;
-            BOOL yes = YES;
-            [inv setArgument:&yes atIndex:2];
-            [inv invoke];
-            __unsafe_unretained id result = nil;
-            [inv getReturnValue:&result];
-            if ([result isKindOfClass:[NSArray class]]) layouts = result;
+            if ([name hasSuffix:@":"]) {
+                NSMethodSignature *sig = [recents methodSignatureForSelector:sel];
+                NSInvocation *inv = [NSInvocation invocationWithMethodSignature:sig];
+                inv.target = recents;
+                inv.selector = sel;
+                BOOL yes = YES;
+                [inv setArgument:&yes atIndex:2];
+                [inv invoke];
+                __unsafe_unretained id result = nil;
+                [inv getReturnValue:&result];
+                if ([result isKindOfClass:[NSArray class]]) layouts = result;
+            } else {
+                id result = [recents performSelector:sel];
+                if ([result isKindOfClass:[NSArray class]]) layouts = result;
+            }
+            if (layouts.count) {
+                ANVLog(@"recents: via %@ -> %lu", name, (unsigned long)layouts.count);
+                break;
+            }
         } @catch (NSException *e) {
-            ANVLog(@"recents invoke exception: %@", e);
+            ANVLog(@"recents %@ exception: %@", name, e);
         }
     }
     if (!layouts.count && [recents respondsToSelector:NSSelectorFromString(@"_recentsFromPrefs")]) {
@@ -509,6 +524,11 @@ typedef void (*MRMediaRemoteSendCommandFunc)(int command, id userInfo);
     }
     ANVLog(@"recents -> %@", bundleIDs);
     return bundleIDs;
+}
+
++ (NSArray<NSString *> *)historyBundleIDs {
+    @try { return [[ANVHistory shared] visitedBundleIDs]; }
+    @catch (__unused NSException *e) { return @[]; }
 }
 
 #pragma mark - 当前 App

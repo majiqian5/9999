@@ -116,6 +116,12 @@ static void ANVSetFrontmostHook(id self, SEL _cmd, BOOL frontmost) {
         @try { bundleID = [layout valueForKey:@"bundleIdentifier"]; } @catch (__unused NSException *e) {}
         if ([bundleID isKindOfClass:[NSString class]] && bundleID.length) return bundleID;
     } @catch (__unused NSException *e) {}
+
+    // SpringBoard 里取不到时，走 LSApplicationWorkspace / SBApplicationController
+    @try {
+        NSString *live = [ANVActions frontmostBundleID];
+        if (live.length) return live;
+    } @catch (__unused NSException *e) {}
     return nil;
 }
 
@@ -221,6 +227,15 @@ static void ANVSetFrontmostHook(id self, SEL _cmd, BOOL frontmost) {
 - (void)noteProgrammaticOpen:(NSString *)bundleID {
     [self suppressRecordingFor:2.0];
     if (bundleID.length) self.current = bundleID;
+}
+
+- (NSArray<NSString *> *)visitedBundleIDs {
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    if (self.current.length) [out addObject:self.current];
+    for (NSString *bid in [self.backStack reverseObjectEnumerator]) {
+        if (bid.length && ![out containsObject:bid]) [out addObject:bid];
+    }
+    return out;
 }
 
 - (NSString *)fallbackRecentBundleID {
