@@ -26,6 +26,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 @property (nonatomic, strong) UIVisualEffectView *blurView;
 @property (nonatomic, copy) NSString *infoLineText;
 @property (nonatomic, strong) UIWindow *panelWindow;     // 面板专用窗口（独立层级，任何 App 上面都能点空白关闭）
+@property (nonatomic, strong) UIWindow *panelReturnWindow;  // 面板窗口变成 key 之前那个 key window
 @property (nonatomic, assign) CFTimeInterval lastBeatHaptic;
 @property (nonatomic, assign) CFTimeInterval lastAudioAt;
 @property (nonatomic, strong) UIScrollView *panelScroll;
@@ -507,6 +508,15 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     }
     [panel addSubview:dirRow];
 
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
+    closeBtn.frame = CGRectMake(width - 34.0, 4.0, 30.0, 30.0);
+    closeBtn.tag = 998;
+    [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
+    [closeBtn setTitleColor:[UIColor colorWithWhite:1.0 alpha:0.85] forState:UIControlStateNormal];
+    closeBtn.titleLabel.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
+    [closeBtn addTarget:self action:@selector(panelCloseTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [panel addSubview:closeBtn];
+
     self.panelView = panel;
 
     // 点空白收起：面板放进一个独立的高层级窗口，里面是一层铺满屏幕的接收视图。
@@ -518,10 +528,34 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         if (scene) host.windowScene = scene;
     }
     host.frame = [UIScreen mainScreen].bounds;
+    if (!host.hidden && host.isKeyWindow == NO) {
+        // 已经显示过就不用重复抢 key
+    }
     host.hidden = NO;
+    // 让这个窗口成为 key window：iOS 只把触摸稳定地投给 key window，
+    // 之前 App 里点不动就是窗口在、但触摸被 App 的 key window 吃掉
+    UIWindow *nowKey = [self currentKeyWindow];
+    if (!host.isKeyWindow && nowKey != host) {
+        self.panelReturnWindow = nowKey;
+        [host makeKeyAndVisible];
+    }
     UIView *hostRoot = host.rootViewController.view;
     hostRoot.frame = host.bounds;
+
+    // 兜底 1：整屏透明按钮（比手势识别更可靠，点一下就关）
+    if (hostRoot.subviews.count == 0) {
+        UIButton *catcher = [UIButton buttonWithType:UIButtonTypeCustom];
+        catcher.frame = hostRoot.bounds;
+        catcher.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        catcher.backgroundColor = [UIColor clearColor];
+        catcher.tag = 999;
+        [catcher addTarget:self action:@selector(panelCloseTapped:) forControlEvents:UIControlEventTouchUpInside];
+        [hostRoot addSubview:catcher];
+    }
     [hostRoot addSubview:panel];
+    [ANVActions note:[NSString stringWithFormat:@"panel shown lvl=%.0f key=%d root=%@",
+                      host.windowLevel, (int)host.isKeyWindow,
+                      NSStringFromCGRect(hostRoot.frame)]];
     CGRect barFrame = self.barView.frame;
     CGFloat top = CGRectGetMinY(barFrame) - CGRectGetHeight(panel.bounds) - 8.0;
     if (top < 60.0) top = 60.0;                       // 不许顶出状态栏
@@ -558,6 +592,15 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
     self.panelView = nil;
     self.panelScroll = nil;
     [self.panelWindow setHidden:YES];
+    if (self.panelReturnWindow && self.panelReturnWindow.isHidden == NO) {
+        [self.panelReturnWindow makeKeyWindow];
+    }
+    self.panelReturnWindow = nil;
+}
+
+/// 点整屏透明按钮 = 收起（兜底通道）
+- (void)panelCloseTapped:(UIButton *)sender {
+    [self hidePanel];
 }
 
 /// 点在设置列表外面的空白处 = 收起列表
@@ -572,7 +615,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
 - (UIWindow *)panelHostWindow {
     if (!self.panelWindow) {
         UIWindow *w = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-        w.windowLevel = UIWindowLevelAlert + 60.0;
+        w.windowLevel = UIWindowLevelAlert + 2.0;
         w.backgroundColor = [UIColor clearColor];
         w.opaque = NO;
 
@@ -592,6 +635,20 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         self.panelWindow = w;
     }
     return self.panelWindow;
+}
+
+/// 当前 key window（按场景取，避开 iOS 13 之后已废弃的 keyWindow）
+- (UIWindow *)currentKeyWindow {
+    if (@available(iOS 13.0, *)) {
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+                if (w.isKeyWindow) return w;
+            }
+        }
+        return nil;
+    }
+    return nil;
 }
 
 /// 当前前台场景（App 里也能拿到正确 scene，面板窗口才显示得出来）
@@ -1778,6 +1835,7 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
 }
 
 - (void)glyphTapped:(UIButton *)sender {
+    if (self.panelView) [self hidePanel];
     [self performSlotAction:sender.tag];
 }
 
