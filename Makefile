@@ -7,7 +7,7 @@ THEOS_PACKAGE_SCHEME = rootless
 include $(THEOS)/makefiles/common.mk
 
 TWEAK_NAME = AndroNavBar
-AndroNavBar_FILES = Tweak.xm ANVBarController.m ANVWidgets.m ANVGlyphView.m ANVActions.m ANVHistory.m ANVSettings.m ANVMusicMonitor.m ANVSpectrumView.m ANVInfo.m
+AndroNavBar_FILES = Tweak.xm ANVBarController.m ANVRecents.m ANVWidgets.m ANVGlyphView.m ANVActions.m ANVHistory.m ANVSettings.m ANVMusicMonitor.m ANVSpectrumView.m ANVInfo.m
 AndroNavBar_CFLAGS = -fobjc-arc
 AndroNavBar_FRAMEWORKS = UIKit QuartzCore AVFoundation Accelerate
 AndroNavBar_PRIVATE_FRAMEWORKS =

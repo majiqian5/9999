@@ -4,6 +4,7 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import "ANVActions.h"
+#import "ANVRecents.h"
 #import "ANVHistory.h"
 #import "ANVSettings.h"
 #import "ANVSpectrumView.h"
@@ -405,6 +406,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         [NSString stringWithFormat:@"拉手灵敏度 %ld%% · 加", (long)lround(st.handleSensitivity * 100)],
         [NSString stringWithFormat:@"拉手灵敏度 %ld%% · 减", (long)lround(st.handleSensitivity * 100)],
         [NSString stringWithFormat:@"一键隐藏导航条 · %@", self.barHidden ? @"点此显示" : @"点此收起"],
+        [NSString stringWithFormat:@"后台卡片 · %@", ([ANVSettings shared].recentsStyle == 1 ? @"叠卡" : @"原生")],
         [NSString stringWithFormat:@"麦克风频谱 · %@", st.micSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"模拟频谱 · %@", st.simulateSpectrum ? @"开" : @"关"],
         [NSString stringWithFormat:@"位置 · %@", st.positionLocked ? @"已锁定" : @"可拖动"],
@@ -416,7 +418,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
                       @200, @201, @202, @203, @204, @205, @206, @207,
                       @210, @211, @212, @213, @217, @220, @221, @218, @219, @214, @215, @216,
                       @222, @223, @224, @225, @226, @227, @228, @229, @230, @231,
-                      @232, @233, @234, @235, @236, @237, @238, @239, @240, @241,
+                      @232, @233, @234, @235, @236, @237, @238, @239, @240, @241, @242,
                       @10, @11, @13, @14, @15];
 
     if (titles.count > 18) rowH = 30.0;
@@ -742,6 +744,8 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         case 232: [settings saveHaloDotScale:settings.haloDotScale + 0.1]; [self applyHaloSettings]; break;
         case 233: [settings saveHaloDotScale:settings.haloDotScale - 0.1]; [self applyHaloSettings]; break;
         case 234: [settings saveHaloRainbow:!settings.haloRainbow]; [self applyHaloSettings]; [self hidePanel]; [self showPanel]; break;
+        case 242: [settings saveRecentsStyle:([ANVSettings shared].recentsStyle == 1 ? 0 : 1)];
+                  [self hidePanel]; [self showPanel]; break;
         case 241: [self setBarHidden:!self.barHidden]; [self hidePanel]; [self showPanel]; break;
         case 238: [settings saveHandleEnabled:!settings.handleEnabled]; [self updateFrame]; [self hidePanel]; [self showPanel]; break;
         case 239: [settings saveHandleSensitivity:settings.handleSensitivity + 0.1]; [self updateFrame]; [self hidePanel]; [self showPanel]; break;
@@ -1448,6 +1452,7 @@ static UIColor *ANVColorForGlyph(ANVGlyphKind kind) {
         self.restoreDot.center = center;
         self.restoreDot.hidden = NO;
 
+        [[ANVRecents shared] dismiss];
         if (self.dragHandle) { [self.dragHandle removeFromSuperview]; self.dragHandle = nil; }
         [self hidePanel];
         [UIView animateWithDuration:0.22 animations:^{
@@ -1735,6 +1740,15 @@ shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherG
         UIImpactFeedbackGenerator *generator =
             [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
         [generator impactOccurred];
+    }
+
+    if ([[ANVSettings shared] recentsStyle] == 1 && (kind == ANVGlyphRecents || kind == ANVGlyphHome)) {
+        if (kind == ANVGlyphHome) {
+            [[ANVRecents shared] dismiss];
+        } else {
+            [[ANVRecents shared] toggleInHost:self.barView.superview];
+            return;
+        }
     }
 
     BOOL ok = [ANVActions performGlyph:kind];

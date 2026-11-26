@@ -62,6 +62,8 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 @property (nonatomic, readonly) CGFloat spectrumThickness; // 柱粗 0.15~1.0          // YES：允许拖到真正的屏幕最底（会压住 Home 指示条）
 @property (nonatomic, readonly) BOOL micSpectrum;         // 麦克风频谱（AxsEQ 无数据时用）
 @property (nonatomic, readonly) BOOL simulateSpectrum;    // 模拟频谱（数据源坏时的占位动画）
+/// 后台键：0 iOS 原生多任务 / 1 卡片叠卡后台
+@property (nonatomic, readonly) NSInteger recentsStyle;
 
 - (void)reload;
 - (void)saveCenter:(CGPoint)normalizedPoint;
@@ -102,5 +104,6 @@ typedef NS_ENUM(NSInteger, ANVKeyAction) {
 - (void)saveSpectrumThickness:(CGFloat)v;
 - (void)saveMicSpectrum:(BOOL)enabled;
 - (void)saveSimulateSpectrum:(BOOL)enabled;
+- (void)saveRecentsStyle:(NSInteger)v;
 - (void)saveAction:(ANVKeyAction)action forSlot:(NSInteger)slot;
 @end

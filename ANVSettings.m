@@ -67,6 +67,7 @@ static void ANVSetPref(NSString *key, id value) {
 @property (nonatomic, assign) CGFloat spectrumThickness;
 @property (nonatomic, assign) BOOL micSpectrum;
 @property (nonatomic, assign) BOOL simulateSpectrum;
+@property (nonatomic, assign) NSInteger recentsStyle;
 @end
 
 @implementation ANVSettings
@@ -145,6 +146,9 @@ static void ANVSetPref(NSString *key, id value) {
     NSInteger st = style ? [style integerValue] : 0;
     if (st < 0 || st > 17) st = 7;
     self.spectrumStyle = st;
+
+    id recents = ANVCopyPref(@"RecentsStyle");
+    self.recentsStyle = recents ? MIN(MAX([recents integerValue], 0), 1) : 1;
 
     id mic = ANVCopyPref(@"MicSpectrum");
     self.micSpectrum = mic ? [mic boolValue] : NO;
@@ -385,6 +389,11 @@ static void ANVSetPref(NSString *key, id value) {
     self.centerY = normalizedPoint.y;
     ANVSetPref(@"CenterX", @(normalizedPoint.x));
     ANVSetPref(@"CenterY", @(normalizedPoint.y));
+}
+
+ - (void)saveRecentsStyle:(NSInteger)v {
+    self.recentsStyle = MIN(MAX(v, 0), 1);
+    ANVSetPref(@"RecentsStyle", @(self.recentsStyle));
 }
 
 @end
