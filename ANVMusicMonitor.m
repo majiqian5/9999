@@ -36,7 +36,8 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
     BOOL _tapInstalled;
     FFTSetup _fftSetup;
     float *_window;
-    CFTimeInterval _lastChangeAt;   // 电平最后一次明显变化的时间（用来识别"卡住不动"的假数据）
+    CFTimeInterval _lastChangeAt;   // 电平最后一次明显变化的时间
+    CFTimeInterval _liveUntil;      // 判定"确实在出声"的截止时间（播放状态或电平变化都会续期）
     CGFloat _lastEnergy;
     float _axsPeak;      // 自适应量程的峰值（AxsEQ 数值不落在 range.txt 里时用）
     int _axsScaleMode;   // 0 已归一化 1 按 range.txt 2 自适应
@@ -56,7 +57,7 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
     if (self.pollTimer) return;
     [self startAxsReader];
 
-    self.pollTimer = [NSTimer scheduledTimerWithTimeInterval:0.8
+    self.pollTimer = [NSTimer scheduledTimerWithTimeInterval:0.5
                                                       target:self
                                                     selector:@selector(pollPlayback)
                                                     userInfo:nil
@@ -104,6 +105,7 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
     BOOL sbPlaying = [self springBoardIsPlaying];
     [self mediaRemoteIsPlaying:^(BOOL mrPlaying) {
         BOOL playing = sbPlaying || mrPlaying;
+        if (playing) self->_liveUntil = [NSDate date].timeIntervalSince1970 + 2.5;
         if (playing != self.playing) {
             self.playing = playing;
             if (playing) {
@@ -492,6 +494,7 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
     if (fabs(energyNow - _lastEnergy) > 0.01) {
         _lastEnergy = energyNow;
         _lastChangeAt = [NSDate date].timeIntervalSince1970;
+        _liveUntil = MAX(_liveUntil, _lastChangeAt + 2.5);
     }
 
     if (++traceTicks % 40 == 0) {
@@ -540,8 +543,8 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
 - (NSString *)sourceLabel {
     NSTimeInterval nowL = [NSDate date].timeIntervalSince1970;
     if (self.axsAvailable) {
-        if (_lastChangeAt <= 0 || nowL - _lastChangeAt > 1.5) return @"AxsEQ 卡住";
-        return @"AxsEQ 真电平";
+        if (nowL >= _liveUntil) return @"AxsEQ · 静音";
+        return self.playing ? @"AxsEQ · 播放中" : @"AxsEQ · 有信号";
     }
     if (self.micAvailable && self.micEnabled) return @"麦克风";
     if (self.simulateEnabled) return @"模拟动画";
@@ -549,9 +552,11 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
 }
 
 - (CGFloat)currentEnergy {
+    NSTimeInterval nowL = [NSDate date].timeIntervalSince1970;
+    if (nowL >= _liveUntil) return 0.0;
     CGFloat sum = 0.0;
     for (NSUInteger i = 0; i < kANVBandCount; i++) sum += _axsLevels[i];
-    return sum / (CGFloat)kANVBandCount;
+    return MIN(1.0, sum / (CGFloat)kANVBandCount);
 }
 
 - (void)fillLevels:(float *)levels count:(NSUInteger)count {
@@ -560,11 +565,12 @@ typedef void (*MRGetNowPlayingInfoFn)(dispatch_queue_t queue, void (^handler)(CF
 
     // 优先用 AxsEQ 的真实电平（文件新鲜度已代表"正在播放"），没有它才退回麦克风 FFT
     if (self.axsAvailable) {
-        // 电平 1.5 秒没有任何变化 → 判定为数据源卡死（不是真电平），直接给 0，
-        // 否则音乐一停、文件还在原地循环写同一个值，光环就会一直转个不停
+        // 出声判定：媒体在播放，或电平还在明显变化（播放状态读不到时的兜底）。
+        // 两者都停 2.5 秒以上才算静音 → 归零，光环/频谱才会停。
+        // 注意：播放时即使电平被削顶成一条平线（AxsEQ 常见），也不算静音。
         NSTimeInterval nowL = [NSDate date].timeIntervalSince1970;
-        BOOL stuck = (_lastChangeAt <= 0 || nowL - _lastChangeAt > 1.5);
-        if (stuck) {
+        BOOL live = (nowL < _liveUntil);
+        if (!live) {
             for (NSUInteger i = 0; i < count; i++) levels[i] = 0.0f;
             return;
         }
